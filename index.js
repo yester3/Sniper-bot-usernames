@@ -66,7 +66,6 @@ function randomUsername(length) {
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Dynamic userId for per-user isolation
 async function sendDM(userId, content) {
     try {
         const dm = await axios.post(`${API_BASE}/users/@me/channels`, 
@@ -148,7 +147,7 @@ async function runSniper(userId) {
             break;
         }
 
-        if (checksOnToken >= 90) { // Changed to 90
+        if (checksOnToken >= 90) {
             console.log(`[Sniper] Token ${tokenIndex + 1} reached 90 checks. Rotating...`);
             tokenIndex++;
             checksOnToken = 0;
@@ -227,32 +226,84 @@ client.once(Events.ClientReady, async (c) => {
             {
                 name: "2nip3r",
                 description: "Open the username sniper interface."
+            },
+            {
+                name: "token-info",
+                description: "Get information from a Discord token."
             }
         ]);
-        console.log("Global slash command registered successfully.");
+        console.log("Global slash commands registered successfully.");
     } catch (err) {
-        console.error("Failed to register global command:", err);
+        console.error("Failed to register global commands:", err);
     }
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
     try {
-        // Per-user check, but allow anyone to use it if AUTHORIZED_USER_ID is removed or check is bypassed
-        // Keeping the auth check as requested
-        if (interaction.user.id !== AUTHORIZED_USER_ID) {
-            if (interaction.isChatInputCommand() || interaction.isButton() || interaction.type === InteractionType.ModalSubmit) {
-                return interaction.reply({ flags: 64, content: "You are not authorized to use this bot." }).catch(() => {});
-            }
-            return;
+        const userId = interaction.user.id;
+
+        // ── AUTH: ONLY /2nip3r IS LOCKED ───────────────────────────────
+        if (interaction.isChatInputCommand() && interaction.commandName === "2nip3r" && userId !== AUTHORIZED_USER_ID) {
+            return interaction.reply({ flags: 64, content: "Only the bot owner can deploy the sniper interface." }).catch(() => {});
         }
 
-        const userId = interaction.user.id;
         if (!userConfig.has(userId)) {
             userConfig.set(userId, defaultConfig());
         }
         const config = userConfig.get(userId);
 
-        // Slash Command
+        // ── /token-info COMMAND ─────────────────────────────────────────
+        if (interaction.isChatInputCommand() && interaction.commandName === "token-info") {
+            const modal = {
+                custom_id: "token_info_modal",
+                title: "Token Info",
+                components: [
+                    { type: 1, components: [{ type: 4, custom_id: "ti_token", style: 1, label: "Account Token", required: true }] }
+                ]
+            };
+            return interaction.showModal(modal);
+        }
+
+        // ── /token-info MODAL SUBMIT ───────────────────────────────────
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "token_info_modal") {
+            await interaction.deferReply({ flags: 64 });
+            const token = interaction.fields.getTextInputValue("ti_token").trim();
+            
+            try {
+                const res = await axios.get(`${API_BASE}/users/@me`, {
+                    headers: { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+                    timeout: 8000
+                });
+                
+                const data = res.data;
+                const createdAt = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
+                const avatarUrl = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : null;
+                const nitroLabel = {0: "None", 1: "Classic", 2: "Nitro", 3: "Basic"}[data.premium_type] ?? "Unknown";
+                
+                const embed = {
+                    title: "Token Info",
+                    color: 0x5865F2,
+                    thumbnail: avatarUrl ? { url: avatarUrl } : undefined,
+                    fields: [
+                        { name: "Username", value: `${data.username}${data.discriminator !== "0" ? `#${data.discriminator}` : ""}`, inline: true },
+                        { name: "User ID", value: `\`${data.id}\``, inline: true },
+                        { name: "Created", value: `<t:${Math.floor(createdAt.getTime() / 1000)}:F>`, inline: false },
+                        { name: "Email", value: data.email || "Not available", inline: true },
+                        { name: "Phone", value: data.phone || "Not registered", inline: true },
+                        { name: "Email Verified", value: data.verified ? "Yes" : "No", inline: true },
+                        { name: "2FA Enabled", value: data.mfa_enabled ? "Yes" : "No", inline: true },
+                        { name: "Nitro", value: nitroLabel, inline: true },
+                        { name: "Flags", value: `\`${data.flags ?? 0}\``, inline: true }
+                    ]
+                };
+                
+                return interaction.editReply({ embeds: [embed] });
+            } catch (err) {
+                return interaction.editReply({ content: `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}` });
+            }
+        }
+
+        // ── /2nip3r COMMAND ────────────────────────────────────────────
         if (interaction.isChatInputCommand() && interaction.commandName === "2nip3r") {
             const mainContainer = {
                 type: 17,
@@ -260,7 +311,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 components: [
                     { type: 10, content: "## 𝐮ֆ𝐞𝐫𝐬" },
                     { type: 14, divider: true, spacing: true },
-                    { type: 10, content: "-# • usernames ֆnip3r free ♱\n-# • 📣 •\n-# • provided by Papi KooH\n-# • 📢 •" }, // Typo fixed
+                    { type: 10, content: "-# • usernames ֆnip3r free ♱\n-# • 📣 •\n-# • provided by Papi KooH\n-# • 📢 •" },
                     { type: 14, divider: true, spacing: true },
                     { type: 1, components: [{ type: 2, style: 1, label: "ֆnip3r", custom_id: "open_config" }] }
                 ]
@@ -269,7 +320,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 64, content: "Sniper interface deployed." }).catch(console.error);
         }
 
-        // Button: Open Config
+        // ── BUTTON: Open Config ────────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "open_config") {
             const configContainer = {
                 type: 17,
@@ -292,7 +343,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 32768 | 64, components: [configContainer] });
         }
 
-        // Button: Info
+        // ── BUTTON: Info ───────────────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "view_info") {
             const tokensList = config.tokenNames.length > 0 ? config.tokenNames.join(", ") : "None";
             const webhooksStatus = `Users: ${config.webhookUsers ? "Set" : "Not Set"}\nRate Limits: ${config.webhookRL ? "Set" : "Not Set"}`;
@@ -310,7 +361,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 32768 | 64, components: [infoContainer] });
         }
 
-        // Button: Open Tokens Modal
+        // ── BUTTON: Open Tokens Modal ──────────────────────────────────
         if (interaction.isButton() && interaction.customId === "modal_tokens") {
             const modal = {
                 custom_id: "submit_tokens",
@@ -326,7 +377,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        // Button: Open Webhooks Modal
+        // ── BUTTON: Open Webhooks Modal ─────────────────────────────────
         if (interaction.isButton() && interaction.customId === "modal_webhooks") {
             const modal = {
                 custom_id: "submit_webhooks",
@@ -339,7 +390,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        // Button: Open Delay Modal
+        // ── BUTTON: Open Delay Modal ────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "modal_delay") {
             const modal = {
                 custom_id: "submit_delay",
@@ -351,7 +402,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        // Modal Submit: Tokens
+        // ── MODAL SUBMIT: Tokens ────────────────────────────────────────
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_tokens") {
             await interaction.deferReply({ flags: 64 });
             const tokens = [];
@@ -375,7 +426,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.editReply({ content: `Tokens updated. Valid accounts: ${names.join(", ") || "None"}` });
         }
 
-        // Modal Submit: Webhooks
+        // ── MODAL SUBMIT: Webhooks ──────────────────────────────────────
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_webhooks") {
             await interaction.deferReply({ flags: 64 });
             config.webhookUsers = interaction.fields.getTextInputValue("hook_users").trim();
@@ -383,7 +434,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.editReply({ content: "Webhooks updated." });
         }
 
-        // Modal Submit: Delay
+        // ── MODAL SUBMIT: Delay ─────────────────────────────────────────
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_delay") {
             await interaction.deferReply({ flags: 64 });
             const val = interaction.fields.getTextInputValue("delay_value").trim().toLowerCase();
@@ -398,7 +449,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.editReply({ content: `Delay updated to ${val} (min 20s).` });
         }
 
-        // Button: Start Sniper
+        // ── BUTTON: Start Sniper ──────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "start_sniper") {
             if (config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is already running." });
             if (!config.tokens.length) return interaction.reply({ flags: 64, content: "No valid tokens configured." });
@@ -406,7 +457,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 64, content: "Sniper started." });
         }
 
-        // Button: Stop Sniper (Check Queue)
+        // ── BUTTON: Stop Sniper (Check Queue) ──────────────────────────
         if (interaction.isButton() && interaction.customId === "stop_sniper") {
             if (!config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is not running." });
             
@@ -431,14 +482,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        // Button: Confirm Stop
+        // ── BUTTON: Confirm Stop ───────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "confirm_stop") {
             config.isRunning = false;
             config.foundQueue = [];
             return interaction.update({ content: "Sniper stopped totally. Queue discarded.", components: [] });
         }
 
-        // Button: Send Everything
+        // ── BUTTON: Send Everything ─────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "send_all") {
             await interaction.deferUpdate();
             config.isRunning = false;
@@ -452,7 +503,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.followUp({ flags: 64, content: "All queued users sent to webhook rapidly. Sniper fully stopped." });
         }
 
-        // Button: View All
+        // ── BUTTON: View All ───────────────────────────────────────────
         if (interaction.isButton() && interaction.customId === "view_all") {
             const usersList = config.foundQueue.map(item => item.username).join("\n") || "No users in queue.";
             const viewContainer = {
