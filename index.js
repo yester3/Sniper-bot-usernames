@@ -102,6 +102,7 @@ async function runSniper(userId) {
     config.isRunning = true;
     let tokenIndex = 0;
     let checksOnToken = 0;
+    let totalChecks = 0;
 
     while (config.isRunning) {
         if (config.tokens.length === 0) {
@@ -111,10 +112,12 @@ async function runSniper(userId) {
         }
 
         if (checksOnToken >= 100) {
+            console.log(`[Sniper] Token ${tokenIndex + 1} reached 100 checks. Rotating...`);
             tokenIndex++;
             checksOnToken = 0;
             if (tokenIndex >= config.tokens.length) {
                 tokenIndex = 0;
+                console.log("[Sniper] All tokens exhausted. Waiting 1 hour before resuming.");
                 await sendWebhook(config.webhookRL, { content: "All tokens have been used 100 times. Waiting 1 hour before resuming." }, true);
                 for (let i = 0; i < 3600; i++) {
                     if (!config.isRunning) break;
@@ -137,7 +140,12 @@ async function runSniper(userId) {
                 { headers: createHeaders(token), timeout: 8000 }
             );
 
+            checksOnToken++;
+            totalChecks++;
+
+            // If API returns 200 and taken is false
             if (res.data?.taken === false) {
+                console.log(`[Sniper] Found available user: ${username}`);
                 const time = Math.floor(Date.now() / 1000);
                 const payload = {
                     flags: 32768,
@@ -157,29 +165,42 @@ async function runSniper(userId) {
                     if (!config.isRunning) break;
                     await sleep(1000);
                 }
-            } else {
-                checksOnToken++;
-                await sleep(1500);
             }
         } catch (error) {
             if (error.response) {
-                if (error.response.status === 429) {
+                // Discord often throws 400 for taken names
+                if (error.response.status === 400) {
+                    checksOnToken++;
+                    totalChecks++;
+                } else if (error.response.status === 429) {
                     const retryAfter = Number(error.response.data?.retry_after) || 5;
+                    console.warn(`[Sniper] Rate limited. Waiting ${retryAfter}s.`);
                     await sendWebhook(config.webhookRL, { content: `Rate limited. Waiting ${retryAfter}s before retrying.` }, true);
                     await sleep(retryAfter * 1000);
                 } else if (error.response.status === 401 || error.response.status === 403) {
+                    console.warn(`[Sniper] Token ${tokenIndex + 1} invalid. Removing and notifying.`);
                     await sendDM(userId, `Token \`${token.slice(0, 15)}...\` has become invalid and was removed.`);
                     config.tokens.splice(tokenIndex, 1);
                     if (tokenIndex >= config.tokens.length) tokenIndex = 0;
                     continue;
                 } else {
+                    console.error("[Sniper] Unknown API error:", error.response.status, error.response.data);
                     await sleep(5000);
                 }
             } else {
                 await sleep(5000);
             }
         }
+
+        if (totalChecks % 50 === 0) {
+            console.log(`[Sniper] Heartbeat: Total checks: ${totalChecks} | Current token checks: ${checksOnToken}`);
+        }
+
+        // Regular delay between checks
+        await sleep(1500);
     }
+    
+    console.log("[Sniper] Stopped.");
 }
 
 client.once(Events.ClientReady, async (c) => {
@@ -224,9 +245,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             ]
         };
         
-        // Send the embed standalone to the channel without showing who ran the command
         await interaction.channel.send({ flags: 32768, components: [mainContainer] }).catch(console.error);
-        // Acknowledge the command ephemerally so Discord doesn't show "interaction failed"
         return interaction.reply({ flags: 64, content: "Sniper interface deployed." }).catch(console.error);
     }
 
