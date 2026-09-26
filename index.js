@@ -20,10 +20,11 @@ function defaultConfig() {
         tokenNames: [],
         webhookUsers: "",
         webhookRL: "",
-        delayMs: 120000, 
+        delayMs: 20000, // 20 seconds default
         isRunning: false,
         checkedUsernames: new Set(),
-        foundQueue: [] // New queue for decoupled sending
+        foundQueue: [],
+        fastSend: false
     };
 }
 
@@ -100,12 +101,10 @@ async function runQueueProcessor(userId) {
     const config = userConfig.get(userId);
     if (!config) return;
 
-    // Runs as long as the sniper is active OR there are still names in the queue to send
     while (config.isRunning || config.foundQueue.length > 0) {
         if (config.foundQueue.length > 0) {
             const { username, time } = config.foundQueue.shift();
             
-            // Standard embed payload to avoid webhook errors
             const payload = {
                 embeds: [{
                     title: "user found",
@@ -116,14 +115,20 @@ async function runQueueProcessor(userId) {
             
             await sendWebhook(config.webhookUsers, payload, false);
             
-            // Wait the configured delay AFTER sending, but only if there are more items to send
-            if (config.foundQueue.length > 0 || config.isRunning) {
-                await sleep(config.delayMs);
+            // Wait the delay ONLY if fastSend is false and sniper is still running
+            if (!config.fastSend && (config.foundQueue.length > 0 || config.isRunning)) {
+                // Break sleep into 1s chunks to respond to fastSend instantly
+                for (let i = 0; i < Math.floor(config.delayMs / 1000); i++) {
+                    if (config.fastSend || !config.isRunning) break;
+                    await sleep(1000);
+                }
             }
         } else {
-            await sleep(1000); // Idle wait if queue is empty
+            await sleep(1000);
         }
     }
+    
+    config.fastSend = false; // Reset flag when done
     console.log("[Sender] Queue processor stopped.");
 }
 
@@ -136,13 +141,12 @@ async function runSniper(userId) {
     let checksOnToken = 0;
     let totalChecks = 0;
 
-    // Start the sender alongside the sniper
     runQueueProcessor(userId);
 
     while (config.isRunning) {
         if (config.tokens.length === 0) {
             await sendDM(userId, "All tokens have become invalid. The sniper has stopped automatically. Please update your tokens.");
-            config.isRunning = false; // Will also break the queue processor once queue is empty
+            config.isRunning = false;
             break;
         }
 
@@ -182,7 +186,6 @@ async function runSniper(userId) {
                 console.log(`[Sniper] Found available user: ${username}. Added to queue.`);
                 const time = Math.floor(Date.now() / 1000);
                 config.foundQueue.push({ username, time });
-                // DO NOT PAUSE. Keep sniping.
             }
         } catch (error) {
             if (error.response) {
@@ -320,7 +323,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             custom_id: "submit_delay",
             title: "Configure Delay",
             components: [
-                { type: 1, components: [{ type: 4, custom_id: "delay_value", style: 1, label: "Delay (e.g., 2m, 1h, 100s)", required: true, value: "2m" }] }
+                { type: 1, components: [{ type: 4, custom_id: "delay_value", style: 1, label: "Delay (e.g., 20s, 2m, 1h)", required: true, value: "20s" }] }
             ]
         };
         return interaction.showModal(modal);
@@ -329,7 +332,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Modal Submit: Tokens
     if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_tokens") {
         await interaction.deferReply({ flags: 64 });
-        
         const tokens = [];
         const names = [];
         for (let i = 1; i <= 5; i++) {
@@ -339,9 +341,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     const res = await axios.get(`${API_BASE}/users/@me`, { headers: createHeaders(t.trim()), timeout: 8000 });
                     tokens.push(t.trim());
                     names.push(res.data.username);
-                } catch (err) {
-                    // Ignore invalid token
-                }
+                } catch (err) {}
             }
         }
         config.tokens = tokens;
@@ -362,30 +362,84 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.deferReply({ flags: 64 });
         const val = interaction.fields.getTextInputValue("delay_value").trim().toLowerCase();
         const num = parseInt(val);
-        let ms = 120000;
+        let ms = 20000;
         if (val.endsWith("s")) ms = num * 1000;
         else if (val.endsWith("m")) ms = num * 60000;
         else if (val.endsWith("h")) ms = num * 3600000;
         else ms = num * 1000;
-        if (ms < 120000) ms = 120000;
+        if (ms < 20000) ms = 20000; // Enforce 20s minimum
         config.delayMs = ms;
-        return interaction.editReply({ content: `Delay updated to ${val}.` });
+        return interaction.editReply({ content: `Delay updated to ${val} (min 20s).` });
     }
 
     // Button: Start Sniper
     if (interaction.isButton() && interaction.customId === "start_sniper") {
         if (config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is already running." });
         if (!config.tokens.length) return interaction.reply({ flags: 64, content: "No valid tokens configured." });
-        
-        runSniper(interaction.user.id); // Start background loop
+        runSniper(interaction.user.id);
         return interaction.reply({ flags: 64, content: "Sniper started." });
     }
 
-    // Button: Stop Sniper
+    // Button: Stop Sniper (Check Queue)
     if (interaction.isButton() && interaction.customId === "stop_sniper") {
         if (!config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is not running." });
-        config.isRunning = false; // Queue processor will drain remaining items and stop
-        return interaction.reply({ flags: 64, content: "Sniper stopped. Remaining queued names will still be sent." });
+        
+        if (config.foundQueue.length > 0) {
+            const confirmContainer = {
+                type: 17,
+                accent_color: 1,
+                components: [
+                    { type: 10, content: `## confirm stop\n\nThere are **${config.foundQueue.length}** users in the queue. What do you want to do?` },
+                    { type: 14, divider: true, spacing: true },
+                    { type: 1, components: [
+                        { type: 2, style: 4, label: "Stop ֆnip3r", custom_id: "confirm_stop" },
+                        { type: 2, style: 3, label: "Send everything to the webhook.", custom_id: "send_all" },
+                        { type: 2, style: 2, label: "view all users", custom_id: "view_all" }
+                    ]}
+                ]
+            };
+            return interaction.reply({ flags: 32768 | 64, components: [confirmContainer] });
+        } else {
+            config.isRunning = false;
+            return interaction.reply({ flags: 64, content: "Sniper stopped. Queue was empty." });
+        }
+    }
+
+    // Button: Confirm Stop
+    if (interaction.isButton() && interaction.customId === "confirm_stop") {
+        config.isRunning = false;
+        config.foundQueue = []; // Discard queue
+        return interaction.update({ content: "Sniper stopped totally. Queue discarded.", components: [] });
+    }
+
+    // Button: Send Everything
+    if (interaction.isButton() && interaction.customId === "send_all") {
+        await interaction.deferUpdate();
+        config.isRunning = false; // Stop sniper from finding more
+        config.fastSend = true;   // Tell queue processor to skip delays
+        
+        // Wait for queue to drain
+        while (config.foundQueue.length > 0) {
+            await sleep(1000);
+        }
+        
+        config.fastSend = false;
+        return interaction.followUp({ flags: 64, content: "All queued users sent to webhook rapidly. Sniper fully stopped." });
+    }
+
+    // Button: View All
+    if (interaction.isButton() && interaction.customId === "view_all") {
+        const usersList = config.foundQueue.map(item => item.username).join("\n") || "No users in queue.";
+        const viewContainer = {
+            type: 17,
+            accent_color: 1,
+            components: [
+                { type: 10, content: "## USERS" },
+                { type: 14, divider: true, spacing: true },
+                { type: 10, content: usersList }
+            ]
+        };
+        return interaction.reply({ flags: 32768 | 64, components: [viewContainer] });
     }
 });
 
