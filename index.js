@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, InteractionType } = require("discord.js");
+const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
 const axios = require("axios");
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
@@ -61,20 +61,6 @@ function randomUsername(length) {
 }
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function replyRaw(interaction, payload) {
-    try {
-        await axios.post(
-            `https://discord.com/api/v10/interactions/${interaction.id}/${interaction.token}/callback`,
-            payload,
-            { headers: { "Content-Type": "application/json" } }
-        );
-    } catch (err) {
-        if (err.response && err.response.status === 40060) {
-            await interaction.followUp(payload.data).catch(()=>{});
-        }
-    }
-}
 
 async function sendDM(userId, content) {
     try {
@@ -196,10 +182,10 @@ async function runSniper(userId) {
     }
 }
 
-client.once("ready", async () => {
-    console.log(`Logged in as ${client.user.tag}`);
+client.once(Events.ClientReady, async (c) => {
+    console.log(`Logged in as ${c.user.tag}`);
     try {
-        await client.application.commands.set([
+        await c.application.commands.set([
             {
                 name: "2nip3r",
                 description: "Open the username sniper interface."
@@ -211,13 +197,10 @@ client.once("ready", async () => {
     }
 });
 
-client.on("interactionCreate", async (interaction) => {
+client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.user.id !== AUTHORIZED_USER_ID) {
         if (interaction.isChatInputCommand() || interaction.isButton() || interaction.type === InteractionType.ModalSubmit) {
-            return replyRaw(interaction, {
-                type: 4,
-                data: { flags: 64, content: "You are not authorized to use this bot." }
-            });
+            return interaction.reply({ flags: 64, content: "You are not authorized to use this bot." }).catch(() => {});
         }
         return;
     }
@@ -240,10 +223,11 @@ client.on("interactionCreate", async (interaction) => {
                 { type: 1, components: [{ type: 2, style: 1, label: "ֆnip3r", custom_id: "open_config" }] }
             ]
         };
-        return replyRaw(interaction, {
-            type: 4,
-            data: { flags: 32768, components: [mainContainer] }
-        });
+        
+        // Send the embed standalone to the channel without showing who ran the command
+        await interaction.channel.send({ flags: 32768, components: [mainContainer] }).catch(console.error);
+        // Acknowledge the command ephemerally so Discord doesn't show "interaction failed"
+        return interaction.reply({ flags: 64, content: "Sniper interface deployed." }).catch(console.error);
     }
 
     // Button: Open Config
@@ -263,62 +247,54 @@ client.on("interactionCreate", async (interaction) => {
                 ]}
             ]
         };
-        return replyRaw(interaction, {
-            type: 4,
-            data: { flags: 32768 | 64, components: [configContainer] }
-        });
+        return interaction.reply({ flags: 32768 | 64, components: [configContainer] });
     }
 
     // Button: Open Tokens Modal
     if (interaction.isButton() && interaction.customId === "modal_tokens") {
-        return replyRaw(interaction, {
-            type: 9,
-            data: {
-                custom_id: "submit_tokens",
-                title: "Configure Tokens",
-                components: [
-                    { type: 1, components: [{ type: 4, custom_id: "token1", style: 1, label: "Token 1 (Required)", required: true }] },
-                    { type: 1, components: [{ type: 4, custom_id: "token2", style: 1, label: "Token 2", required: false }] },
-                    { type: 1, components: [{ type: 4, custom_id: "token3", style: 1, label: "Token 3", required: false }] },
-                    { type: 1, components: [{ type: 4, custom_id: "token4", style: 1, label: "Token 4", required: false }] },
-                    { type: 1, components: [{ type: 4, custom_id: "token5", style: 1, label: "Token 5", required: false }] }
-                ]
-            }
-        });
+        const modal = {
+            custom_id: "submit_tokens",
+            title: "Configure Tokens",
+            components: [
+                { type: 1, components: [{ type: 4, custom_id: "token1", style: 1, label: "Token 1 (Required)", required: true }] },
+                { type: 1, components: [{ type: 4, custom_id: "token2", style: 1, label: "Token 2", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "token3", style: 1, label: "Token 3", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "token4", style: 1, label: "Token 4", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "token5", style: 1, label: "Token 5", required: false }] }
+            ]
+        };
+        return interaction.showModal(modal);
     }
 
     // Button: Open Webhooks Modal
     if (interaction.isButton() && interaction.customId === "modal_webhooks") {
-        return replyRaw(interaction, {
-            type: 9,
-            data: {
-                custom_id: "submit_webhooks",
-                title: "Configure Webhooks",
-                components: [
-                    { type: 1, components: [{ type: 4, custom_id: "hook_users", style: 1, label: "Users Found Webhook", required: true }] },
-                    { type: 1, components: [{ type: 4, custom_id: "hook_rl", style: 1, label: "Rate Limit Webhook", required: true }] }
-                ]
-            }
-        });
+        const modal = {
+            custom_id: "submit_webhooks",
+            title: "Configure Webhooks",
+            components: [
+                { type: 1, components: [{ type: 4, custom_id: "hook_users", style: 1, label: "Users Found Webhook", required: true }] },
+                { type: 1, components: [{ type: 4, custom_id: "hook_rl", style: 1, label: "Rate Limit Webhook", required: true }] }
+            ]
+        };
+        return interaction.showModal(modal);
     }
 
     // Button: Open Delay Modal
     if (interaction.isButton() && interaction.customId === "modal_delay") {
-        return replyRaw(interaction, {
-            type: 9,
-            data: {
-                custom_id: "submit_delay",
-                title: "Configure Delay",
-                components: [
-                    { type: 1, components: [{ type: 4, custom_id: "delay_value", style: 1, label: "Delay (e.g., 2m, 1h, 100s)", required: true, value: "2m" }] }
-                ]
-            }
-        });
+        const modal = {
+            custom_id: "submit_delay",
+            title: "Configure Delay",
+            components: [
+                { type: 1, components: [{ type: 4, custom_id: "delay_value", style: 1, label: "Delay (e.g., 2m, 1h, 100s)", required: true, value: "2m" }] }
+            ]
+        };
+        return interaction.showModal(modal);
     }
 
     // Modal Submit: Tokens
     if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_tokens") {
-        await replyRaw(interaction, { type: 5, data: {} }); // Defer
+        await interaction.deferReply({ flags: 64 });
+        
         const tokens = [];
         const names = [];
         for (let i = 1; i <= 5; i++) {
@@ -335,20 +311,20 @@ client.on("interactionCreate", async (interaction) => {
         }
         config.tokens = tokens;
         config.tokenNames = names;
-        return interaction.followUp({ content: `Tokens updated. Valid accounts: ${names.join(", ") || "None"}`, flags: 64 });
+        return interaction.editReply({ content: `Tokens updated. Valid accounts: ${names.join(", ") || "None"}` });
     }
 
     // Modal Submit: Webhooks
     if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_webhooks") {
-        await replyRaw(interaction, { type: 5, data: {} });
+        await interaction.deferReply({ flags: 64 });
         config.webhookUsers = interaction.fields.getTextInputValue("hook_users").trim();
         config.webhookRL = interaction.fields.getTextInputValue("hook_rl").trim();
-        return interaction.followUp({ content: "Webhooks updated.", flags: 64 });
+        return interaction.editReply({ content: "Webhooks updated." });
     }
 
     // Modal Submit: Delay
     if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_delay") {
-        await replyRaw(interaction, { type: 5, data: {} });
+        await interaction.deferReply({ flags: 64 });
         const val = interaction.fields.getTextInputValue("delay_value").trim().toLowerCase();
         const num = parseInt(val);
         let ms = 120000;
@@ -358,23 +334,23 @@ client.on("interactionCreate", async (interaction) => {
         else ms = num * 1000;
         if (ms < 120000) ms = 120000;
         config.delayMs = ms;
-        return interaction.followUp({ content: `Delay updated to ${val}.`, flags: 64 });
+        return interaction.editReply({ content: `Delay updated to ${val}.` });
     }
 
     // Button: Start Sniper
     if (interaction.isButton() && interaction.customId === "start_sniper") {
-        if (config.isRunning) return replyRaw(interaction, { type: 4, data: { flags: 64, content: "Sniper is already running." } });
-        if (!config.tokens.length) return replyRaw(interaction, { type: 4, data: { flags: 64, content: "No valid tokens configured." } });
+        if (config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is already running." });
+        if (!config.tokens.length) return interaction.reply({ flags: 64, content: "No valid tokens configured." });
         
         runSniper(interaction.user.id); // Start background loop
-        return replyRaw(interaction, { type: 4, data: { flags: 64, content: "Sniper started." } });
+        return interaction.reply({ flags: 64, content: "Sniper started." });
     }
 
     // Button: Stop Sniper
     if (interaction.isButton() && interaction.customId === "stop_sniper") {
-        if (!config.isRunning) return replyRaw(interaction, { type: 4, data: { flags: 64, content: "Sniper is not running." } });
+        if (!config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is not running." });
         config.isRunning = false;
-        return replyRaw(interaction, { type: 4, data: { flags: 64, content: "Sniper stopped." } });
+        return interaction.reply({ flags: 64, content: "Sniper stopped." });
     }
 });
 
