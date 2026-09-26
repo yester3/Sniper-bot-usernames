@@ -22,7 +22,8 @@ function defaultConfig() {
         webhookRL: "",
         delayMs: 120000, 
         isRunning: false,
-        checkedUsernames: new Set()
+        checkedUsernames: new Set(),
+        foundQueue: [] // New queue for decoupled sending
     };
 }
 
@@ -95,6 +96,37 @@ async function sendWebhook(webhookUrl, payload, isRateLimit = false) {
     }
 }
 
+async function runQueueProcessor(userId) {
+    const config = userConfig.get(userId);
+    if (!config) return;
+
+    // Runs as long as the sniper is active OR there are still names in the queue to send
+    while (config.isRunning || config.foundQueue.length > 0) {
+        if (config.foundQueue.length > 0) {
+            const { username, time } = config.foundQueue.shift();
+            
+            // Standard embed payload to avoid webhook errors
+            const payload = {
+                embeds: [{
+                    title: "user found",
+                    description: `\`${username}\`\n${username}\n\`\`\`${username}\`\`\`\n\nFound: <t:${time}:R>`,
+                    color: 1
+                }]
+            };
+            
+            await sendWebhook(config.webhookUsers, payload, false);
+            
+            // Wait the configured delay AFTER sending, but only if there are more items to send
+            if (config.foundQueue.length > 0 || config.isRunning) {
+                await sleep(config.delayMs);
+            }
+        } else {
+            await sleep(1000); // Idle wait if queue is empty
+        }
+    }
+    console.log("[Sender] Queue processor stopped.");
+}
+
 async function runSniper(userId) {
     const config = userConfig.get(userId);
     if (!config || !config.tokens.length) return;
@@ -104,10 +136,13 @@ async function runSniper(userId) {
     let checksOnToken = 0;
     let totalChecks = 0;
 
+    // Start the sender alongside the sniper
+    runQueueProcessor(userId);
+
     while (config.isRunning) {
         if (config.tokens.length === 0) {
             await sendDM(userId, "All tokens have become invalid. The sniper has stopped automatically. Please update your tokens.");
-            config.isRunning = false;
+            config.isRunning = false; // Will also break the queue processor once queue is empty
             break;
         }
 
@@ -143,32 +178,14 @@ async function runSniper(userId) {
             checksOnToken++;
             totalChecks++;
 
-            // If API returns 200 and taken is false
             if (res.data?.taken === false) {
-                console.log(`[Sniper] Found available user: ${username}`);
+                console.log(`[Sniper] Found available user: ${username}. Added to queue.`);
                 const time = Math.floor(Date.now() / 1000);
-                const payload = {
-                    flags: 32768,
-                    components: [{
-                        type: 17,
-                        accent_color: 1,
-                        components: [
-                            { type: 10, content: "## user found" },
-                            { type: 14, divider: true, spacing: true },
-                            { type: 10, content: `\`${username}\`\n${username}\n\`\`\`${username}\`\`\`\n\nFound: <t:${time}:R>` }
-                        ]
-                    }]
-                };
-                await sendWebhook(config.webhookUsers, payload, false);
-
-                for (let i = 0; i < (config.delayMs / 1000); i++) {
-                    if (!config.isRunning) break;
-                    await sleep(1000);
-                }
+                config.foundQueue.push({ username, time });
+                // DO NOT PAUSE. Keep sniping.
             }
         } catch (error) {
             if (error.response) {
-                // Discord often throws 400 for taken names
                 if (error.response.status === 400) {
                     checksOnToken++;
                     totalChecks++;
@@ -184,7 +201,7 @@ async function runSniper(userId) {
                     if (tokenIndex >= config.tokens.length) tokenIndex = 0;
                     continue;
                 } else {
-                    console.error("[Sniper] Unknown API error:", error.response.status, error.response.data);
+                    console.error("[Sniper] Unknown API error:", error.response.status);
                     await sleep(5000);
                 }
             } else {
@@ -196,7 +213,6 @@ async function runSniper(userId) {
             console.log(`[Sniper] Heartbeat: Total checks: ${totalChecks} | Current token checks: ${checksOnToken}`);
         }
 
-        // Regular delay between checks
         await sleep(1500);
     }
     
@@ -368,8 +384,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // Button: Stop Sniper
     if (interaction.isButton() && interaction.customId === "stop_sniper") {
         if (!config.isRunning) return interaction.reply({ flags: 64, content: "Sniper is not running." });
-        config.isRunning = false;
-        return interaction.reply({ flags: 64, content: "Sniper stopped." });
+        config.isRunning = false; // Queue processor will drain remaining items and stop
+        return interaction.reply({ flags: 64, content: "Sniper stopped. Remaining queued names will still be sent." });
     }
 });
 
