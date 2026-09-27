@@ -16,47 +16,41 @@ const userConfig = new Map();
 const accConfig = new Map();
 
 function defaultConfig() {
-    return {
-        tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, 
-        isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false,
-        totalTokensAdded: 0, invalidTokensCount: 0
-    };
+    return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
 }
 
 function defaultAccConfig() { return { token: null }; }
 
+// Headers for Sniper (Spoofs Chrome)
 function createHeaders(token) {
     const superProperties = Buffer.from(JSON.stringify({
         os: "Windows", browser: "Chrome", device: "", system_locale: "en-US",
         browser_user_agent: USER_AGENT, browser_version: "120.0.0.0", os_version: "10",
         release_channel: "stable", client_build_number: 222963, client_event_source: null
     })).toString("base64");
+    return { Authorization: token, "Content-Type": "application/json", "User-Agent": USER_AGENT, "X-Super-Properties": superProperties, "X-Discord-Locale": "en-US", "Accept-Language": "en-US,en;q=0.9", Origin: "https://discord.com", Referer: "https://discord.com/" };
+}
 
-    return {
-        Authorization: token, "Content-Type": "application/json", "User-Agent": USER_AGENT,
-        "X-Super-Properties": superProperties, "X-Discord-Locale": "en-US",
-        "Accept-Language": "en-US,en;q=0.9", Origin: "https://discord.com", Referer: "https://discord.com/"
-    };
+// Headers for User Account Actions (Simpler, prevents invalid token errors)
+function userHeaders(token) {
+    return { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json" };
 }
 
 const joinerHeaders = {
-    'authority': 'discord.com', 'accept': '*/*', 'accept-language': 'sv,sv-SE;q=0.9',
-    'content-type': 'application/json', 'origin': 'https://discord.com', 'referer': 'https://discord.com/',
-    'sec-ch-ua': '"Not?A_Brand";v="8", "Chromium";v="108"', 'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9016 Chrome/108.0.5359.215 Electron/22.3.12 Safari/537.36',
-    'x-debug-options': 'bugReporterEnabled', 'x-discord-locale': 'sv-SE', 'x-discord-timezone': 'Europe/Stockholm',
-    'x-super-properties': 'eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiRGlzY29yZCBDbGllbnQiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfdmVyc2lvbiI6IjEuMC45MDE2Iiwib3NfdmVyc2lvbiI6IjEwLjAuMTkwNDUiLCJvc19hcmNoIjoieDY0Iiwic3lzdGVtX2xvY2FsZSI6InN2IiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV09XNjQpIEFwcGxlV2ViS2l0LzUzNy4zNiAoS0hUTUwsIGxpa2UgR2Vja28pIGRpc2NvcmQvMS4wLjkwMTYgQ2hyb21lLzEwOC4wLjUzNTkuMjE1IEVsZWN0cm9uLzIyLjMuMTIgU2FmYXJpLzUzNy4zNiIsImJyb3dzZXJfdmVyc2lvbiI6IjIyLjMuMTIiLCJjbGllbnRfYnVpbGRfbnVtYmVyIjoyMTg2MDQsIm5hdGl2ZV9idWlsZF9udW1iZXIiOjM1MjM2LCJjbGllbnRfZXZlbnRfc291cmNlIjpudWxsfQ=='
+    'authority': 'discord.com', 'accept': '*/*', 'accept-language': 'sv,sv-SE;q=0.9', 'content-type': 'application/json', 'origin': 'https://discord.com', 'referer': 'https://discord.com/', 'sec-ch-ua': '"Not?A_Brand";v="8", "Chromium";v="108"', 'sec-ch-ua-mobile': '?0', 'sec-ch-ua-platform': '"Windows"', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'same-origin', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9016 Chrome/108.0.5359.215 Electron/22.3.12 Safari/537.36', 'x-debug-options': 'bugReporterEnabled', 'x-discord-locale': 'sv-SE', 'x-discord-timezone': 'Europe/Stockholm', 'x-super-properties': 'eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiRGlzY29yZCBDbGllbnQiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfdmVyc2lvbiI6IjEuMC45MDE2Iiwib3NfdmVyc2lvbiI6IjEwLjAuMTkwNDUiLCJvc19hcmNoIjoieDY0Iiwic3lzdGVtX2xvY2FsZSI6InN2IiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV09XNjQpIEFwcGxlV2ViS2l0LzUzNy4zNiAoS0hUTUwsIGxpa2UgR2Vja28pIGRpc2NvcmQvMS4wLjkwMTYgQ2hyb21lLzEwOC4wLjUzNTkuMjE1IEVsZWN0cm9uLzIyLjMuMTIgU2FmYXJpLzUzNy4zNiIsImJyb3dzZXJfdmVyc2lvbiI6IjIyLjMuMTIiLCJjbGllbnRfYnVpbGRfbnVtYmVyIjoyMTg2MDQsIm5hdGl2ZV9idWlsZF9udW1iZXIiOjM1MjM2LCJjbGllbnRfZXZlbnRfc291cmNlIjpudWxsfQ=='
 };
 
-function randomUsername(length) {
-    let u = ""; for (let i = 0; i < length; i++) u += CHARS[Math.floor(Math.random() * CHARS.length)]; return u;
-}
-function randStr(length) {
-    let s = ""; for (let i = 0; i < length; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)]; return s;
-}
+function randomUsername(length) { let u = ""; for (let i = 0; i < length; i++) u += CHARS[Math.floor(Math.random() * CHARS.length)]; return u; }
+function randStr(length) { let s = ""; for (let i = 0; i < length; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)]; return s; }
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper for V2 Ephemeral Responses
+function v2Info(title, text, color = 1) {
+    return { type: 17, accent_color: color, components: [
+        { type: 10, content: `## ${title}` }, { type: 14, divider: true, spacing: true },
+        { type: 10, content: text }
+    ]};
+}
 
 async function sendDM(userId, content) {
     try {
@@ -70,20 +64,15 @@ async function sendWebhook(webhookUrl, payload, isRateLimit, userId) {
     try { await axios.post(webhookUrl, payload, { timeout: 8000 }); }
     catch (error) {
         if (error.response) {
-            if (error.response.status === 429) {
-                const r = Number(error.response.data?.retry_after) || 5; await sleep(r * 1000);
-                return sendWebhook(webhookUrl, payload, isRateLimit, userId);
-            } else if (error.response.status === 404 || error.response.status === 403 || error.response.status >= 500) {
-                const h = isRateLimit ? "Rate Limit" : "Users Found";
-                if (userId) await sendDM(userId, `Your ${h} webhook is invalid or deleted. Please update it.`);
-            }
+            if (error.response.status === 429) { const r = Number(error.response.data?.retry_after) || 5; await sleep(r * 1000); return sendWebhook(webhookUrl, payload, isRateLimit, userId); }
+            else if (error.response.status === 404 || error.response.status === 403 || error.response.status >= 500) { const h = isRateLimit ? "Rate Limit" : "Users Found"; if (userId) await sendDM(userId, `Your ${h} webhook is invalid or deleted. Please update it.`); }
         }
     }
 }
 
-async function getAccountInfo(token) { return (await axios.get(`${API_BASE}/users/@me`, { headers: createHeaders(token), timeout: 8000 })).data; }
-async function getDMs(token) { return (await axios.get(`${API_BASE}/users/@me/channels`, { headers: createHeaders(token), timeout: 8000 })).data.filter(c => c.type === 1); }
-async function getGuilds(token) { return (await axios.get(`${API_BASE}/users/@me/guilds`, { headers: createHeaders(token), timeout: 8000 })).data; }
+async function getAccountInfo(token) { return (await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 })).data; }
+async function getDMs(token) { return (await axios.get(`${API_BASE}/users/@me/channels`, { headers: userHeaders(token), timeout: 8000 })).data.filter(c => c.type === 1); }
+async function getGuilds(token) { return (await axios.get(`${API_BASE}/users/@me/guilds`, { headers: userHeaders(token), timeout: 8000 })).data; }
 
 async function joinServer(token, invite) {
     const c = invite.replace(/https?:\/\/(www\.)?discord\.(gg|com\/invite)\//i, "").split("/")[0].trim();
@@ -101,9 +90,7 @@ async function runQueueProcessor(userId) {
             const { username, time } = config.foundQueue.shift();
             const payload = { embeds: [{ title: "user found", description: `\`${username}\`\n${username}\n\`\`\`${username}\`\`\`\n\nFound: <t:${time}:R>`, color: 1 }] };
             await sendWebhook(config.webhookUsers, payload, false, userId);
-            if (!config.fastSend && (config.foundQueue.length > 0 || config.isRunning)) {
-                for (let i = 0; i < Math.floor(config.delayMs / 1000); i++) { if (config.fastSend || !config.isRunning) break; await sleep(1000); }
-            }
+            if (!config.fastSend && (config.foundQueue.length > 0 || config.isRunning)) { for (let i = 0; i < Math.floor(config.delayMs / 1000); i++) { if (config.fastSend || !config.isRunning) break; await sleep(1000); } }
         } else await sleep(1000);
     }
     config.fastSend = false;
@@ -115,20 +102,12 @@ async function runSniper(userId) {
     runQueueProcessor(userId);
     while (config.isRunning) {
         if (config.tokens.length === 0) { await sendDM(userId, "All tokens invalid. Sniper stopped."); config.isRunning = false; break; }
-        if (cot >= 90) {
-            ti++; cot = 0;
-            if (ti >= config.tokens.length) {
-                ti = 0; await sendWebhook(config.webhookRL, { content: "All tokens used 90 times. Waiting 1h." }, true, userId);
-                for (let i = 0; i < 3600; i++) { if (!config.isRunning) break; await sleep(1000); } continue;
-            }
-        }
+        if (cot >= 90) { ti++; cot = 0; if (ti >= config.tokens.length) { ti = 0; await sendWebhook(config.webhookRL, { content: "All tokens used 90 times. Waiting 1h." }, true, userId); for (let i = 0; i < 3600; i++) { if (!config.isRunning) break; await sleep(1000); } continue; } }
         const token = config.tokens[ti]; const username = randomUsername(5);
-        if (config.checkedUsernames.has(username)) continue;
-        config.checkedUsernames.add(username);
+        if (config.checkedUsernames.has(username)) continue; config.checkedUsernames.add(username);
         try {
             const res = await axios.post(`${API_BASE}/users/@me/pomelo-attempt`, { username }, { headers: createHeaders(token), timeout: 8000 });
-            cot++; tc++;
-            if (res.data?.taken === false) { config.foundQueue.push({ username, time: Math.floor(Date.now() / 1000) }); }
+            cot++; tc++; if (res.data?.taken === false) { config.foundQueue.push({ username, time: Math.floor(Date.now() / 1000) }); }
         } catch (error) {
             if (error.response) {
                 if (error.response.status === 400) { cot++; tc++; }
@@ -174,16 +153,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 });
             const token = interaction.fields.getTextInputValue("ti_token").trim();
             try {
-                const res = await axios.get(`${API_BASE}/users/@me`, { headers: { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }, timeout: 8000 });
+                const res = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 });
                 const data = res.data; const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
-                const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : null;
                 const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
                 const container = { type: 17, accent_color: 0x5865F2, components: [
                     { type: 10, content: "## Token Info" }, { type: 14, divider: true, spacing: true },
                     { type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Verified:** ${data.verified ? "Yes" : "No"}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}\n**Nitro:** ${n}\n**Flags:** \`${data.flags ?? 0}\`` }
                 ]};
                 return interaction.editReply({ flags: 32768, components: [container] });
-            } catch (err) { return interaction.editReply({ content: `Invalid token. HTTP ${err?.response?.status ?? "N/A"}` }); }
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", "Invalid or expired token.", 0xED4245)] }); }
         }
 
         // /2nip3r
@@ -237,30 +215,34 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isButton() && interaction.customId === "modal_delay") return interaction.showModal({ custom_id: "submit_delay", title: "Configure Delay", components: [
             { type: 1, components: [{ type: 4, custom_id: "delay_value", style: 1, label: "Delay (e.g., 20s, 2m, 1h)", required: true, value: "20s" }] }
         ]});
+        
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_tokens") {
             await interaction.deferReply({ flags: 64 }); const t = [], n = []; let pc = 0;
-            for (let i = 1; i <= 5; i++) { const v = interaction.fields.getTextInputValue(`token${i}`); if (v && v.trim()) { pc++; try { const r = await axios.get(`${API_BASE}/users/@me`, { headers: createHeaders(v.trim()), timeout: 8000 }); t.push(v.trim()); n.push(r.data.username); } catch {} } }
+            for (let i = 1; i <= 5; i++) { const v = interaction.fields.getTextInputValue(`token${i}`); if (v && v.trim()) { pc++; try { const r = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(v.trim()), timeout: 8000 }); t.push(v.trim()); n.push(r.data.username); } catch {} } }
             config.tokens = t; config.tokenNames = n; config.totalTokensAdded = pc; config.invalidTokensCount = pc - t.length;
-            return interaction.editReply({ content: `Tokens updated. Valid: ${n.join(", ") || "None"}` });
+            return interaction.editReply({ flags: 32768, components: [v2Info("tokens", `Valid accounts: ${n.join(", ") || "None"}`)] });
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_webhooks") {
-            await interaction.deferReply({ flags: 64 }); config.webhookUsers = interaction.fields.getTextInputValue("hook_users").trim(); config.webhookRL = interaction.fields.getTextInputValue("hook_rl").trim(); return interaction.editReply({ content: "Webhooks updated." });
+            await interaction.deferReply({ flags: 64 }); config.webhookUsers = interaction.fields.getTextInputValue("hook_users").trim(); config.webhookRL = interaction.fields.getTextInputValue("hook_rl").trim();
+            return interaction.editReply({ flags: 32768, components: [v2Info("webhooks", "Webhooks updated successfully.")] });
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_delay") {
             await interaction.deferReply({ flags: 64 }); const v = interaction.fields.getTextInputValue("delay_value").trim().toLowerCase(); const num = parseInt(v); let ms = 20000;
             if (v.endsWith("s")) ms = num * 1000; else if (v.endsWith("m")) ms = num * 60000; else if (v.endsWith("h")) ms = num * 3600000; else ms = num * 1000;
-            if (ms < 20000) ms = 20000; config.delayMs = ms; return interaction.editReply({ content: `Delay: ${v}` });
+            if (ms < 20000) ms = 20000; config.delayMs = ms;
+            return interaction.editReply({ flags: 32768, components: [v2Info("delay", `Delay updated to ${v}.`)] });
         }
+        
         if (interaction.isButton() && interaction.customId === "start_sniper") {
-            if (config.isRunning) return interaction.reply({ flags: 64, content: "Already running." });
-            if (!config.tokens.length) return interaction.reply({ flags: 64, content: "No tokens." });
-            runSniper(userId); return interaction.reply({ flags: 64, content: "Sniper started." });
+            if (config.isRunning) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Already running.", 0xFEE75C)] });
+            if (!config.tokens.length) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "No tokens configured.", 0xED4245)] });
+            runSniper(userId); return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper started successfully.")] });
         }
         if (interaction.isButton() && interaction.customId === "stop_sniper") {
-            if (!config.isRunning) return interaction.reply({ flags: 64, content: "Not running." });
+            if (!config.isRunning) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Not running.", 0xFEE75C)] });
             if (config.foundQueue.length > 0) {
                 const c = { type: 17, accent_color: 1, components: [
-                    { type: 10, content: `## confirm stop\n\n**${config.foundQueue.length}** users in queue.` }, { type: 14, divider: true, spacing: true },
+                    { type: 10, content: `## confirm stop\n\nThere are **${config.foundQueue.length}** users in the queue. What do you want to do?` }, { type: 14, divider: true, spacing: true },
                     { type: 1, components: [
                         { type: 2, style: 4, label: "Stop ֆnip3r", custom_id: "confirm_stop" },
                         { type: 2, style: 3, label: "Send everything to the webhook.", custom_id: "send_all" },
@@ -268,16 +250,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     ]}
                 ]};
                 return interaction.reply({ flags: 32768 | 64, components: [c] });
-            } else { config.isRunning = false; return interaction.reply({ flags: 64, content: "Sniper stopped. Queue empty." }); }
+            } else { config.isRunning = false; return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper stopped. Queue was empty.")] }); }
         }
         if (interaction.isButton() && interaction.customId === "confirm_stop") { config.isRunning = false; config.foundQueue = []; return interaction.update({ content: "Stopped. Queue discarded.", components: [] }); }
         if (interaction.isButton() && interaction.customId === "send_all") {
             await interaction.deferUpdate(); config.isRunning = false; config.fastSend = true;
             while (config.foundQueue.length > 0) await sleep(1000); config.fastSend = false;
-            return interaction.followUp({ flags: 64, content: "All sent. Sniper stopped." });
+            return interaction.followUp({ flags: 32768 | 64, components: [v2Info("sniper", "All queued users sent to webhook rapidly. Sniper fully stopped.")] });
         }
         if (interaction.isButton() && interaction.customId === "view_all") {
-            const l = config.foundQueue.map(i => i.username).join("\n") || "No users.";
+            const l = config.foundQueue.map(i => i.username).join("\n") || "No users in queue.";
             const c = { type: 17, accent_color: 1, components: [ { type: 10, content: "## USERS" }, { type: 14, divider: true, spacing: true }, { type: 10, content: l } ] };
             return interaction.reply({ flags: 32768 | 64, components: [c] });
         }
@@ -289,9 +271,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
-                    { type: 2, style: 1, label: "Login", custom_id: "acc_login" },
+                    { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
                     { type: 2, style: 2, label: "functions", custom_id: "acc_functions" },
-                    { type: 2, style: 4, label: "Log out", custom_id: "acc_logout" }
+                    { type: 2, style: 2, label: "Log out", custom_id: "acc_logout" }
                 ]}
             ]};
             await interaction.channel.send({ flags: 32768, components: [c] }).catch(console.error);
@@ -315,16 +297,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dms.length}\n**Servers:** ${guilds.length}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` } } }
                 ]};
                 return interaction.editReply({ flags: 32768, components: [c] });
-            } catch (err) { return interaction.editReply({ content: `Invalid token. HTTP ${err?.response?.status ?? "N/A"}` }); }
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}`, 0xED4245)] }); }
         }
         if (interaction.isButton() && interaction.customId === "acc_logout") {
-            acc.token = null; return interaction.reply({ flags: 64, content: "Logged out." });
+            if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
+            acc.token = null;
+            return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed from memory. Logged out.")] });
         }
         if (interaction.isButton() && interaction.customId === "acc_functions") {
-            if (!acc.token) {
-                const c = { type: 17, accent_color: 0xED4245, components: [ { type: 10, content: "## error\n\nNo token found. Please use **Login** first." } ] };
-                return interaction.reply({ flags: 32768 | 64, components: [c] });
-            }
+            if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "No token found. Please use **Login** first.", 0xED4245)] });
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## functions" }, { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
@@ -351,55 +332,54 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 });
             try {
                 const data = await getAccountInfo(acc.token);
-                const c = { type: 17, accent_color: 0x57F287, components: [ { type: 10, content: `## account check\n\n✅ Valid Token\n**User:** ${data.username} (\`${data.id}\`)\n**Email:** \`${data.email || "N/A"}\`` } ] };
-                return interaction.editReply({ flags: 32768, components: [c] });
-            } catch { return interaction.editReply({ content: "❌ Invalid token." }); }
+                return interaction.editReply({ flags: 32768, components: [v2Info("account check", `✅ Valid Token\n**User:** ${data.username} (\`${data.id}\`)\n**Email:** \`${data.email || "N/A"}\``, 0x57F287)] });
+            } catch { return interaction.editReply({ flags: 32768, components: [v2Info("error", "Invalid token.", 0xED4245)] }); }
         }
         if (interaction.isButton() && interaction.customId === "acc_viewservers") {
             await interaction.deferReply({ flags: 64 });
             try {
-                const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ content: "No servers." });
+                const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ flags: 32768, components: [v2Info("servers", "No servers found.", 0xFEE75C)] });
                 const list = guilds.map((g, i) => `**${i + 1}.** ${g.name} — \`${g.id}\``).join("\n");
                 const c = { type: 17, accent_color: 0x5865F2, components: [ { type: 10, content: `## servers (${guilds.length})` }, { type: 14, divider: true, spacing: true }, { type: 10, content: list.slice(0, 4000) } ] };
                 return interaction.editReply({ flags: 32768, components: [c] });
-            } catch (err) { return interaction.editReply({ content: `Error: ${err.message}` }); }
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
         if (interaction.isButton() && interaction.customId === "acc_deldms") {
             await interaction.deferReply({ flags: 64 });
             try {
-                const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ content: "No DMs." });
-                let del = 0; for (const ch of dms) { try { await axios.delete(`${API_BASE}/channels/${ch.id}`, { headers: createHeaders(acc.token), timeout: 8000 }); del++; } catch {} await sleep(400); }
-                return interaction.editReply({ content: `✅ Closed **${del}** DMs.` });
-            } catch (err) { return interaction.editReply({ content: `Error: ${err.message}` }); }
+                const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ flags: 32768, components: [v2Info("delete dms", "No open DMs to delete.", 0xFEE75C)] });
+                let del = 0; for (const ch of dms) { try { await axios.delete(`${API_BASE}/channels/${ch.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); del++; } catch {} await sleep(400); }
+                return interaction.editReply({ flags: 32768, components: [v2Info("delete dms", `✅ Closed **${del}** DM channels.`, 0x57F287)] });
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
         if (interaction.isButton() && interaction.customId === "acc_leaveall") {
             await interaction.deferReply({ flags: 64 });
             try {
-                const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ content: "No servers." });
-                let left = 0; for (const g of guilds) { try { await axios.delete(`${API_BASE}/users/@me/guilds/${g.id}`, { headers: createHeaders(acc.token), timeout: 8000 }); left++; } catch {} await sleep(500); }
-                return interaction.editReply({ content: `✅ Left **${left}** servers.` });
-            } catch (err) { return interaction.editReply({ content: `Error: ${err.message}` }); }
+                const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ flags: 32768, components: [v2Info("leave servers", "No servers to leave.", 0xFEE75C)] });
+                let left = 0; for (const g of guilds) { try { await axios.delete(`${API_BASE}/users/@me/guilds/${g.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); left++; } catch {} await sleep(500); }
+                return interaction.editReply({ flags: 32768, components: [v2Info("leave servers", `✅ Left **${left}** servers.`, 0x57F287)] });
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
 
         // /acc MODALS
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_join_modal") {
             await interaction.deferReply({ flags: 64 }); const invite = interaction.fields.getTextInputValue("invite_code").trim();
-            try { await joinServer(acc.token, invite); return interaction.editReply({ content: `✅ Joined server.` }); }
-            catch (err) { return interaction.editReply({ content: `❌ Error: \`${err.response?.data?.message || err.message}\`` }); }
+            try { await joinServer(acc.token, invite); return interaction.editReply({ flags: 32768, components: [v2Info("join server", "✅ Joined server successfully.", 0x57F287)] }); }
+            catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_senddms_modal") {
             await interaction.deferReply({ flags: 64 }); const msg = interaction.fields.getTextInputValue("dm_message").trim();
             try {
-                const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ content: "No DMs." });
-                let sent = 0, fail = 0; for (const ch of dms) { try { await axios.post(`${API_BASE}/channels/${ch.id}/messages`, { content: msg }, { headers: createHeaders(acc.token), timeout: 8000 }); sent++; } catch { fail++; } await sleep(1200); }
-                return interaction.editReply({ content: `✅ Sent to **${sent}** DMs. Failed: **${fail}**.` });
-            } catch (err) { return interaction.editReply({ content: `Error: ${err.message}` }); }
+                const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ flags: 32768, components: [v2Info("send dms", "No open DMs to send to.", 0xFEE75C)] });
+                let sent = 0, fail = 0; for (const ch of dms) { try { await axios.post(`${API_BASE}/channels/${ch.id}/messages`, { content: msg }, { headers: userHeaders(acc.token), timeout: 8000 }); sent++; } catch { fail++; } await sleep(1200); }
+                return interaction.editReply({ flags: 32768, components: [v2Info("send dms", `✅ Sent to **${sent}** DMs.\nFailed: **${fail}**.`, 0x57F287)] });
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_setstatus_modal") {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
-            if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ content: "❌ Invalid status." });
-            try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: createHeaders(acc.token), timeout: 8000 }); return interaction.editReply({ content: `✅ Status changed to ${st}.` }); }
-            catch (err) { return interaction.editReply({ content: `❌ Error: \`${err.response?.data?.message || err.message}\`` }); }
+            if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible.", 0xED4245)] });
+            try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 }); return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); }
+            catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
         }
 
     } catch (err) {
