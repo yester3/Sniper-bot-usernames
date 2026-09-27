@@ -164,6 +164,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 const res = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 });
                 const data = res.data; const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
                 const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
+                const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
                 const container = { type: 17, accent_color: 0x5865F2, components: [
                     { type: 10, content: "## Token Info" }, { type: 14, divider: true, spacing: true },
                     { type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Verified:** ${data.verified ? "Yes" : "No"}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}\n**Nitro:** ${n}\n**Flags:** \`${data.flags ?? 0}\`` }
@@ -184,7 +185,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 64, content: "Deployed." }).catch(console.error);
         }
 
-        // Sniper Buttons
+        // Sniper buttons
         if (interaction.isButton() && interaction.customId === "open_config") {
             const c = { type: 17, accent_color: 1, components: [
                 { type: 10, content: "## configure" }, { type: 14, divider: true, spacing: true },
@@ -321,10 +322,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
             const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
+            const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
             
             const c = { type: 17, accent_color: 0x57F287, components: [
                 { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
-                { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` } } }
+                { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
             ]};
             return interaction.editReply({ flags: 32768, components: [c] });
         }
