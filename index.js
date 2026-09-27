@@ -1,6 +1,14 @@
 const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
 const axios = require("axios");
 
+// CRASH PROTECTION
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught Exception:', err);
+});
+
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const AUTHORIZED_USER_ID = "1539880648326651929";
 
@@ -164,7 +172,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 const res = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 });
                 const data = res.data; const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
                 const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
-                const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
                 const container = { type: 17, accent_color: 0x5865F2, components: [
                     { type: 10, content: "## Token Info" }, { type: 14, divider: true, spacing: true },
                     { type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Verified:** ${data.verified ? "Yes" : "No"}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}\n**Nitro:** ${n}\n**Flags:** \`${data.flags ?? 0}\`` }
@@ -324,9 +331,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
             const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
             
+            // FIX: Section is type 9, not 11. Thumbnail is 11.
             const c = { type: 17, accent_color: 0x57F287, components: [
                 { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
-                { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
+                { type: 9, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
             ]};
             return interaction.editReply({ flags: 32768, components: [c] });
         }
