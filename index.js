@@ -21,7 +21,6 @@ function defaultConfig() {
 
 function defaultAccConfig() { return { token: null }; }
 
-// Headers for Sniper (Spoofs Chrome)
 function createHeaders(token) {
     const superProperties = Buffer.from(JSON.stringify({
         os: "Windows", browser: "Chrome", device: "", system_locale: "en-US",
@@ -31,7 +30,6 @@ function createHeaders(token) {
     return { Authorization: token, "Content-Type": "application/json", "User-Agent": USER_AGENT, "X-Super-Properties": superProperties, "X-Discord-Locale": "en-US", "Accept-Language": "en-US,en;q=0.9", Origin: "https://discord.com", Referer: "https://discord.com/" };
 }
 
-// Headers for User Account Actions (Simpler, prevents invalid token errors)
 function userHeaders(token) {
     return { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json" };
 }
@@ -44,7 +42,6 @@ function randomUsername(length) { let u = ""; for (let i = 0; i < length; i++) u
 function randStr(length) { let s = ""; for (let i = 0; i < length; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)]; return s; }
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper for V2 Ephemeral Responses
 function v2Info(title, text, color = 1) {
     return { type: 17, accent_color: color, components: [
         { type: 10, content: `## ${title}` }, { type: 14, divider: true, spacing: true },
@@ -70,9 +67,20 @@ async function sendWebhook(webhookUrl, payload, isRateLimit, userId) {
     }
 }
 
-async function getAccountInfo(token) { return (await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 })).data; }
-async function getDMs(token) { return (await axios.get(`${API_BASE}/users/@me/channels`, { headers: userHeaders(token), timeout: 8000 })).data.filter(c => c.type === 1); }
-async function getGuilds(token) { return (await axios.get(`${API_BASE}/users/@me/guilds`, { headers: userHeaders(token), timeout: 8000 })).data; }
+async function getAccountInfo(token) { 
+    const res = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(token), timeout: 8000 });
+    return res.data;
+}
+
+async function getDMs(token) { 
+    const res = await axios.get(`${API_BASE}/users/@me/channels`, { headers: userHeaders(token), timeout: 8000 });
+    return Array.isArray(res.data) ? res.data.filter(c => c.type === 1) : [];
+}
+
+async function getGuilds(token) { 
+    const res = await axios.get(`${API_BASE}/users/@me/guilds`, { headers: userHeaders(token), timeout: 8000 });
+    return Array.isArray(res.data) ? res.data : [];
+}
 
 async function joinServer(token, invite) {
     const c = invite.replace(/https?:\/\/(www\.)?discord\.(gg|com\/invite)\//i, "").split("/")[0].trim();
@@ -284,21 +292,43 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isButton() && interaction.customId === "acc_login") {
             return interaction.showModal({ custom_id: "acc_login_modal", title: "Login", components: [{ type: 1, components: [{ type: 4, custom_id: "acc_token", style: 1, label: "Account Token", required: true }] }] });
         }
+        
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_login_modal") {
             await interaction.deferReply({ flags: 64 });
             const token = interaction.fields.getTextInputValue("acc_token").trim();
+            
+            // ISOLATED TOKEN VALIDATION
+            let data;
             try {
-                const data = await getAccountInfo(token); acc.token = token;
-                const dms = await getDMs(token); const guilds = await getGuilds(token);
-                const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
-                const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
-                const c = { type: 17, accent_color: 0x57F287, components: [
-                    { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
-                    { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dms.length}\n**Servers:** ${guilds.length}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` } } }
-                ]};
-                return interaction.editReply({ flags: 32768, components: [c] });
-            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}`, 0xED4245)] }); }
+                data = await getAccountInfo(token);
+            } catch (err) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}`, 0xED4245)] });
+            }
+            
+            acc.token = token;
+            
+            // ISOLATED DATA FETCHING (DMs and Guilds)
+            let dmsCount = 0, guildsCount = 0;
+            try {
+                const dms = await getDMs(token);
+                dmsCount = dms.length;
+            } catch (e) { console.error("DM fetch error:", e.message); }
+            
+            try {
+                const guilds = await getGuilds(token);
+                guildsCount = guilds.length;
+            } catch (e) { console.error("Guilds fetch error:", e.message); }
+            
+            const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
+            const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
+            
+            const c = { type: 17, accent_color: 0x57F287, components: [
+                { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
+                { type: 11, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` } } }
+            ]};
+            return interaction.editReply({ flags: 32768, components: [c] });
         }
+        
         if (interaction.isButton() && interaction.customId === "acc_logout") {
             if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
             acc.token = null;
