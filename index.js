@@ -42,12 +42,7 @@ function userHeaders(token) {
     return { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json" };
 }
 
-const joinerHeaders = {
-    'authority': 'discord.com', 'accept': '*/*', 'accept-language': 'sv,sv-SE;q=0.9', 'content-type': 'application/json', 'origin': 'https://discord.com', 'referer': 'https://discord.com/', 'sec-ch-ua': '"Not?A_Brand";v="8", "Chromium";v="108"', 'sec-ch-ua-mobile': '?0', 'sec-ch-ua-platform': '"Windows"', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'same-origin', 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9016 Chrome/108.0.5359.215 Electron/22.3.12 Safari/537.36', 'x-debug-options': 'bugReporterEnabled', 'x-discord-locale': 'sv-SE', 'x-discord-timezone': 'Europe/Stockholm', 'x-super-properties': 'eyJvcyI6IldpbmRvd3MiLCJicm93c2VyIjoiRGlzY29yZCBDbGllbnQiLCJyZWxlYXNlX2NoYW5uZWwiOiJzdGFibGUiLCJjbGllbnRfdmVyc2lvbiI6IjEuMC45MDE2Iiwib3NfdmVyc2lvbiI6IjEwLjAuMTkwNDUiLCJvc19hcmNoIjoieDY0Iiwic3lzdGVtX2xvY2FsZSI6InN2IiwiYnJvd3Nlcl91c2VyX2FnZW50IjoiTW96aWxsYS81LjAgKFdpbmRvd3MgTlQgMTAuMDsgV09XNjQpIEFwcGxlV2ViS2l0LzUzNy4zNiAoS0hUTUwsIGxpa2UgR2Vja28pIGRpc2NvcmQvMS4wLjkwMTYgQ2hyb21lLzEwOC4wLjUzNTkuMjE1IEVsZWN0cm9uLzIyLjMuMTIgU2FmYXJpLzUzNy4zNiIsImJyb3dzZXJfdmVyc2lvbiI6IjIyLjMuMTIiLCJjbGllbnRfYnVpbGRfbnVtYmVyIjoyMTg2MDQsIm5hdGl2ZV9idWlsZF9udW1iZXIiOjM1MjM2LCJjbGllbnRfZXZlbnRfc291cmNlIjpudWxsfQ=='
-};
-
 function randomUsername(length) { let u = ""; for (let i = 0; i < length; i++) u += CHARS[Math.floor(Math.random() * CHARS.length)]; return u; }
-function randStr(length) { let s = ""; for (let i = 0; i < length; i++) s += CHARS[Math.floor(Math.random() * CHARS.length)]; return s; }
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 function v2Info(title, text, color = 1) {
@@ -57,10 +52,10 @@ function v2Info(title, text, color = 1) {
     ]};
 }
 
-async function sendDM(userId, content) {
+async function sendDM(userId, content, files) {
     try {
         const dm = await axios.post(`${API_BASE}/users/@me/channels`, { recipient_id: userId }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
-        await axios.post(`${API_BASE}/channels/${dm.data.id}/messages`, { content }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
+        await axios.post(`${API_BASE}/channels/${dm.data.id}/messages`, { content, files }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
     } catch (err) { console.error("Failed to send DM:", err.message); }
 }
 
@@ -88,15 +83,6 @@ async function getDMs(token) {
 async function getGuilds(token) { 
     const res = await axios.get(`${API_BASE}/users/@me/guilds`, { headers: userHeaders(token), timeout: 8000 });
     return Array.isArray(res.data) ? res.data : [];
-}
-
-async function joinServer(token, invite) {
-    const c = invite.replace(/https?:\/\/(www\.)?discord\.(gg|com\/invite)\//i, "").split("/")[0].trim();
-    const s = await axios.get("https://discord.com", { headers: joinerHeaders, timeout: 8000 });
-    const cookies = s.headers['set-cookie'];
-    if (cookies) joinerHeaders['cookie'] = cookies.map(c => c.split(';')[0]).join('; ');
-    joinerHeaders['Authorization'] = token;
-    await axios.post(`${API_BASE}/invites/${c}`, { session_id: randStr(32) }, { headers: joinerHeaders, timeout: 8000 });
 }
 
 async function runQueueProcessor(userId) {
@@ -305,7 +291,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 });
             const token = interaction.fields.getTextInputValue("acc_token").trim();
             
-            // ISOLATED TOKEN VALIDATION
             let data;
             try {
                 data = await getAccountInfo(token);
@@ -315,23 +300,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             acc.token = token;
             
-            // ISOLATED DATA FETCHING (DMs and Guilds)
             let dmsCount = 0, guildsCount = 0;
-            try {
-                const dms = await getDMs(token);
-                dmsCount = dms.length;
-            } catch (e) { console.error("DM fetch error:", e.message); }
-            
-            try {
-                const guilds = await getGuilds(token);
-                guildsCount = guilds.length;
-            } catch (e) { console.error("Guilds fetch error:", e.message); }
+            try { const dms = await getDMs(token); dmsCount = dms.length; } catch (e) { console.error("DM fetch error:", e.message); }
+            try { const guilds = await getGuilds(token); guildsCount = guilds.length; } catch (e) { console.error("Guilds fetch error:", e.message); }
             
             const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
             const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
             const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
             
-            // FIX: Section is type 9, not 11. Thumbnail is 11.
             const c = { type: 17, accent_color: 0x57F287, components: [
                 { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
                 { type: 9, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
@@ -344,27 +320,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
             acc.token = null;
             return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed from memory. Logged out.")] });
         }
+        
         if (interaction.isButton() && interaction.customId === "acc_functions") {
             if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "No token found. Please use **Login** first.", 0xED4245)] });
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## functions" }, { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
-                    { type: 2, style: 2, label: "Join a server", custom_id: "acc_join" },
                     { type: 2, style: 2, label: "Delete DMs", custom_id: "acc_deldms" },
                     { type: 2, style: 2, label: "Send DMS", custom_id: "acc_senddms" },
-                    { type: 2, style: 2, label: "Leave All Servers", custom_id: "acc_leaveall" }
+                    { type: 2, style: 2, label: "Leave All Servers", custom_id: "acc_leaveall" },
+                    { type: 2, style: 2, label: "View DMs", custom_id: "acc_viewdms" }
                 ]},
                 { type: 1, components: [
                     { type: 2, style: 2, label: "View servers", custom_id: "acc_viewservers" },
                     { type: 2, style: 2, label: "Change status", custom_id: "acc_setstatus" },
-                    { type: 2, style: 2, label: "Account check", custom_id: "acc_check" }
+                    { type: 2, style: 2, label: "Account check", custom_id: "acc_check" },
+                    { type: 2, style: 2, label: "Export DMs", custom_id: "acc_exportdms" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
         }
 
         // /acc FUNCTIONS LOGIC
-        if (interaction.isButton() && interaction.customId === "acc_join") return interaction.showModal({ custom_id: "acc_join_modal", title: "Join Server", components: [{ type: 1, components: [{ type: 4, custom_id: "invite_code", style: 1, label: "Invite Link or Code", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_senddms") return interaction.showModal({ custom_id: "acc_senddms_modal", title: "Send DMs", components: [{ type: 1, components: [{ type: 4, custom_id: "dm_message", style: 2, label: "Message to send", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online, idle, dnd, invisible)", required: true }] }] });
 
@@ -375,6 +352,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("account check", `✅ Valid Token\n**User:** ${data.username} (\`${data.id}\`)\n**Email:** \`${data.email || "N/A"}\``, 0x57F287)] });
             } catch { return interaction.editReply({ flags: 32768, components: [v2Info("error", "Invalid token.", 0xED4245)] }); }
         }
+        
         if (interaction.isButton() && interaction.customId === "acc_viewservers") {
             await interaction.deferReply({ flags: 64 });
             try {
@@ -384,6 +362,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [c] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
+        
+        if (interaction.isButton() && interaction.customId === "acc_viewdms") {
+            await interaction.deferReply({ flags: 64 });
+            try {
+                const dms = await getDMs(acc.token);
+                if (!dms.length) return interaction.editReply({ flags: 32768, components: [v2Info("view dms", "No open DMs.", 0xFEE75C)] });
+                
+                const list = dms.map((dm, i) => {
+                    const user = dm.recipients?.[0];
+                    const name = user ? `${user.username} (${user.id})` : "Unknown User";
+                    return `**${i + 1}.** ${name}`;
+                }).join("\n");
+                
+                const c = { type: 17, accent_color: 0x5865F2, components: [
+                    { type: 10, content: `## dms (${dms.length})` }, { type: 14, divider: true, spacing: true },
+                    { type: 10, content: list.slice(0, 4000) }
+                ]};
+                return interaction.editReply({ flags: 32768, components: [c] });
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
+        }
+        
         if (interaction.isButton() && interaction.customId === "acc_deldms") {
             await interaction.deferReply({ flags: 64 });
             try {
@@ -392,6 +391,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("delete dms", `✅ Closed **${del}** DM channels.`, 0x57F287)] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
+        
         if (interaction.isButton() && interaction.customId === "acc_leaveall") {
             await interaction.deferReply({ flags: 64 });
             try {
@@ -401,12 +401,82 @@ client.on(Events.InteractionCreate, async (interaction) => {
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
 
-        // /acc MODALS
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_join_modal") {
-            await interaction.deferReply({ flags: 64 }); const invite = interaction.fields.getTextInputValue("invite_code").trim();
-            try { await joinServer(acc.token, invite); return interaction.editReply({ flags: 32768, components: [v2Info("join server", "✅ Joined server successfully.", 0x57F287)] }); }
-            catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
+        // FULL EXPORT DMs LOGIC
+        if (interaction.isButton() && interaction.customId === "acc_exportdms") {
+            await interaction.deferReply({ flags: 64 });
+            try {
+                const dms = await getDMs(acc.token);
+                if (!dms.length) return interaction.editReply({ content: "No open DMs to export." });
+                
+                let html = `<!DOCTYPE html><html><head><title>DM Export</title><style>body{font-family:sans-serif;background:#111;color:#eee;padding:20px} .dm{border:1px solid #333;border-radius:8px;padding:15px;margin-bottom:20px} .msg{margin:5px 0;padding:5px;border-bottom:1px solid #222} .author{font-weight:bold;color:#5865F2} img{max-width:400px;border-radius:8px;display:block;margin-top:5px} a{color:#00aff4}</style></head><body><h1>DM Export</h1>`;
+                
+                for (const dm of dms) {
+                    const user = dm.recipients?.[0];
+                    const name = user ? user.username : "Unknown";
+                    html += `<div class="dm"><h2>DM with ${name}</h2>`;
+                    
+                    let lastId = null;
+                    let allMsgs = [];
+                    while (true) {
+                        try {
+                            const opts = { limit: 100 };
+                            if (lastId) opts.before = lastId;
+                            const res = await axios.get(`${API_BASE}/channels/${dm.id}/messages`, { params: opts, headers: userHeaders(acc.token), timeout: 8000 });
+                            const batch = res.data;
+                            if (!batch || batch.length === 0) break;
+                            allMsgs.push(...batch);
+                            // Sort to find the oldest (smallest snowflake)
+                            batch.sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
+                            lastId = batch[0].id;
+                            
+                            if (batch.length < 100) break;
+                            await sleep(700); // Prevent rate limits
+                        } catch (e) {
+                            if (e.response?.status === 429) {
+                                const wait = Number(e.response.data?.retry_after) || 5;
+                                await sleep(wait * 1000);
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    allMsgs.reverse(); // Chronological order
+                    for (const m of allMsgs) {
+                        const author = m.author.username;
+                        let content = (m.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                        // Render links
+                        content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+                        let media = "";
+                        if (m.attachments) {
+                            for (const att of m.attachments) {
+                                if (att.content_type?.startsWith("image/") || /\.(png|jpg|jpeg|gif|webp)$/i.test(att.filename || att.url)) {
+                                    media += `<img src="${att.url}" alt="attachment">`;
+                                }
+                            }
+                        }
+                        if (m.embeds) {
+                            for (const emb of m.embeds) {
+                                if (emb.image?.url) media += `<img src="${emb.image.url}" alt="embed_image">`;
+                                if (emb.thumbnail?.url) media += `<img src="${emb.thumbnail.url}" alt="embed_thumbnail">`;
+                            }
+                        }
+                        html += `<div class="msg"><span class="author">${author}</span>: ${content} ${media}</div>`;
+                    }
+                    
+                    html += `</div>`;
+                }
+                
+                html += `</body></html>`;
+                const buffer = Buffer.from(html, 'utf-8');
+                
+                return interaction.editReply({ content: "Here is the full export of your DMs:", files: [{ attachment: buffer, name: "dms_export_full.html" }] });
+            } catch (err) {
+                return interaction.editReply({ content: `Error exporting DMs: ${err.message}` });
+            }
         }
+
+        // /acc MODALS
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_senddms_modal") {
             await interaction.deferReply({ flags: 64 }); const msg = interaction.fields.getTextInputValue("dm_message").trim();
             try {
