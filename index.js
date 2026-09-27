@@ -22,6 +22,7 @@ const CHARS = "abcdefghijklmnopqrstuvwxyz";
 
 const userConfig = new Map();
 const accConfig = new Map();
+let logsChannelId = null;
 
 function defaultConfig() {
     return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
@@ -52,10 +53,19 @@ function v2Info(title, text, color = 1) {
     ]};
 }
 
-async function sendDM(userId, content, files) {
+async function sendLog(title, description, color = 0x2B2D31) {
+    if (!logsChannelId) return;
+    try {
+        await axios.post(`${API_BASE}/channels/${logsChannelId}/messages`, {
+            embeds: [{ title, description, color, timestamp: new Date().toISOString() }]
+        }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
+    } catch (e) { console.error("Log error:", e.message); }
+}
+
+async function sendDM(userId, content) {
     try {
         const dm = await axios.post(`${API_BASE}/users/@me/channels`, { recipient_id: userId }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
-        await axios.post(`${API_BASE}/channels/${dm.data.id}/messages`, { content, files }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
+        await axios.post(`${API_BASE}/channels/${dm.data.id}/messages`, { content }, { headers: { Authorization: `Bot ${BOT_TOKEN}`, "Content-Type": "application/json" } });
     } catch (err) { console.error("Failed to send DM:", err.message); }
 }
 
@@ -128,7 +138,8 @@ client.once(Events.ClientReady, async (c) => {
         await c.application.commands.set([
             { name: "2nip3r", description: "Open the username sniper interface." },
             { name: "token-info", description: "Get information from a Discord token." },
-            { name: "acc", description: "Open the automated accounts panel." }
+            { name: "acc", description: "Open the automated accounts panel." },
+            { name: "logs", description: "Configure the logs channel.", options: [{ type: 7, name: "channel", description: "The channel for logs", required: true }] }
         ]);
         console.log("Commands registered.");
     } catch (err) { console.error("Cmd reg error:", err); }
@@ -141,11 +152,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // AUTH LOCKS
         if (interaction.isChatInputCommand() && interaction.commandName === "2nip3r" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
         if (interaction.isChatInputCommand() && interaction.commandName === "acc" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
+        if (interaction.isChatInputCommand() && interaction.commandName === "logs" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
 
         if (!userConfig.has(userId)) userConfig.set(userId, defaultConfig());
         if (!accConfig.has(userId)) accConfig.set(userId, defaultAccConfig());
         const config = userConfig.get(userId);
         const acc = accConfig.get(userId);
+
+        // /logs COMMAND
+        if (interaction.isChatInputCommand() && interaction.commandName === "logs") {
+            logsChannelId = interaction.options.getChannel("channel").id;
+            sendLog("Logs Configured", `Logs channel set to <#${logsChannelId}> by <@${userId}> (\`${userId}\`).`, 0x57F287);
+            return interaction.reply({ flags: 64, content: `Logs channel set to <#${logsChannelId}>.` });
+        }
 
         // /token-info
         if (interaction.isChatInputCommand() && interaction.commandName === "token-info") {
@@ -222,23 +241,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 }); const t = [], n = []; let pc = 0;
             for (let i = 1; i <= 5; i++) { const v = interaction.fields.getTextInputValue(`token${i}`); if (v && v.trim()) { pc++; try { const r = await axios.get(`${API_BASE}/users/@me`, { headers: userHeaders(v.trim()), timeout: 8000 }); t.push(v.trim()); n.push(r.data.username); } catch {} } }
             config.tokens = t; config.tokenNames = n; config.totalTokensAdded = pc; config.invalidTokensCount = pc - t.length;
+            sendLog("Sniper: Tokens Configured", `User: <@${userId}> (\`${userId}\`)\nValid: ${n.join(", ") || "None"}\nInvalid: ${config.invalidTokensCount}`, 0x57F287);
             return interaction.editReply({ flags: 32768, components: [v2Info("tokens", `Valid accounts: ${n.join(", ") || "None"}`)] });
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_webhooks") {
             await interaction.deferReply({ flags: 64 }); config.webhookUsers = interaction.fields.getTextInputValue("hook_users").trim(); config.webhookRL = interaction.fields.getTextInputValue("hook_rl").trim();
+            sendLog("Sniper: Webhooks Configured", `User: <@${userId}> (\`${userId}\`)\nUsers Webhook: \`${config.webhookUsers}\`\nRL Webhook: \`${config.webhookRL}\``, 0x57F287);
             return interaction.editReply({ flags: 32768, components: [v2Info("webhooks", "Webhooks updated successfully.")] });
         }
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "submit_delay") {
             await interaction.deferReply({ flags: 64 }); const v = interaction.fields.getTextInputValue("delay_value").trim().toLowerCase(); const num = parseInt(v); let ms = 20000;
             if (v.endsWith("s")) ms = num * 1000; else if (v.endsWith("m")) ms = num * 60000; else if (v.endsWith("h")) ms = num * 3600000; else ms = num * 1000;
             if (ms < 20000) ms = 20000; config.delayMs = ms;
+            sendLog("Sniper: Delay Configured", `User: <@${userId}> (\`${userId}\`)\nDelay: ${v}`, 0x57F287);
             return interaction.editReply({ flags: 32768, components: [v2Info("delay", `Delay updated to ${v}.`)] });
         }
         
         if (interaction.isButton() && interaction.customId === "start_sniper") {
             if (config.isRunning) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Already running.", 0xFEE75C)] });
             if (!config.tokens.length) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "No tokens configured.", 0xED4245)] });
-            runSniper(userId); return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper started successfully.")] });
+            runSniper(userId);
+            sendLog("Sniper: Started", `User: <@${userId}> (\`${userId}\`)\nTokens: ${config.tokenNames.join(", ")}`, 0x57F287);
+            return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper started successfully.")] });
         }
         if (interaction.isButton() && interaction.customId === "stop_sniper") {
             if (!config.isRunning) return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Not running.", 0xFEE75C)] });
@@ -252,12 +276,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     ]}
                 ]};
                 return interaction.reply({ flags: 32768 | 64, components: [c] });
-            } else { config.isRunning = false; return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper stopped. Queue was empty.")] }); }
+            } else {
+                config.isRunning = false;
+                sendLog("Sniper: Stopped", `User: <@${userId}> (\`${userId}\`)\nTokens Used: ${config.tokenNames.join(", ")}`, 0xED4245);
+                return interaction.reply({ flags: 32768 | 64, components: [v2Info("sniper", "Sniper stopped. Queue was empty.")] });
+            }
         }
-        if (interaction.isButton() && interaction.customId === "confirm_stop") { config.isRunning = false; config.foundQueue = []; return interaction.update({ content: "Stopped. Queue discarded.", components: [] }); }
+        if (interaction.isButton() && interaction.customId === "confirm_stop") {
+            config.isRunning = false; config.foundQueue = [];
+            sendLog("Sniper: Stopped (Discarded Queue)", `User: <@${userId}> (\`${userId}\`)`, 0xED4245);
+            return interaction.update({ content: "Stopped. Queue discarded.", components: [] });
+        }
         if (interaction.isButton() && interaction.customId === "send_all") {
             await interaction.deferUpdate(); config.isRunning = false; config.fastSend = true;
             while (config.foundQueue.length > 0) await sleep(1000); config.fastSend = false;
+            sendLog("Sniper: Stopped (Sent All)", `User: <@${userId}> (\`${userId}\`)`, 0xED4245);
             return interaction.followUp({ flags: 32768 | 64, components: [v2Info("sniper", "All queued users sent to webhook rapidly. Sniper fully stopped.")] });
         }
         if (interaction.isButton() && interaction.customId === "view_all") {
@@ -308,6 +341,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
             const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
             
+            sendLog("ACC: Login Successful", `User: <@${userId}> (\`${userId}\`)\nToken: \`${token.slice(0,15)}...\`\nAcc: ${data.username} (\`${data.id}\`)\nEmail: \`${data.email || "N/A"}\`\nPhone: \`${data.phone || "N/A"}\``, 0x57F287);
+            
             const c = { type: 17, accent_color: 0x57F287, components: [
                 { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
                 { type: 9, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
@@ -317,6 +352,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         if (interaction.isButton() && interaction.customId === "acc_logout") {
             if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
+            sendLog("ACC: Logout", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
             acc.token = null;
             return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed from memory. Logged out.")] });
         }
@@ -329,13 +365,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     { type: 2, style: 2, label: "Delete DMs", custom_id: "acc_deldms" },
                     { type: 2, style: 2, label: "Send DMS", custom_id: "acc_senddms" },
                     { type: 2, style: 2, label: "Leave All Servers", custom_id: "acc_leaveall" },
-                    { type: 2, style: 2, label: "View DMs", custom_id: "acc_viewdms" }
+                    { type: 2, style: 2, label: "View DMs", custom_id: "acc_viewdms" },
+                    { type: 2, style: 2, label: "Export DMs", custom_id: "acc_exportdms" }
                 ]},
                 { type: 1, components: [
                     { type: 2, style: 2, label: "View servers", custom_id: "acc_viewservers" },
                     { type: 2, style: 2, label: "Change status", custom_id: "acc_setstatus" },
                     { type: 2, style: 2, label: "Account check", custom_id: "acc_check" },
-                    { type: 2, style: 2, label: "Export DMs", custom_id: "acc_exportdms" }
+                    { type: 2, style: 2, label: "Change Nickname", custom_id: "acc_changenick" },
+                    { type: 2, style: 4, label: "Reset Account", custom_id: "acc_reset" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -344,11 +382,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // /acc FUNCTIONS LOGIC
         if (interaction.isButton() && interaction.customId === "acc_senddms") return interaction.showModal({ custom_id: "acc_senddms_modal", title: "Send DMs", components: [{ type: 1, components: [{ type: 4, custom_id: "dm_message", style: 2, label: "Message to send", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online, idle, dnd, invisible)", required: true }] }] });
+        if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
+        
+        if (interaction.isButton() && interaction.customId === "acc_reset") {
+            const c = { type: 17, accent_color: 0xED4245, components: [
+                { type: 10, content: "## confirm reset\n\nThis will **destroy** the account:\n- Leave all servers\n- Close all DMs\n- Remove all friends\n- Set status to invisible\n\nAre you sure?" }, { type: 14, divider: true, spacing: true },
+                { type: 1, components: [
+                    { type: 2, style: 4, label: "Yes, reset it", custom_id: "acc_reset_confirm" },
+                    { type: 2, style: 2, label: "Cancel", custom_id: "acc_reset_cancel" }
+                ]}
+            ]};
+            return interaction.reply({ flags: 32768 | 64, components: [c] });
+        }
+        if (interaction.isButton() && interaction.customId === "acc_reset_cancel") return interaction.update({ content: "Reset cancelled.", components: [] });
+        
+        if (interaction.isButton() && interaction.customId === "acc_reset_confirm") {
+            await interaction.deferUpdate();
+            try {
+                sendLog("ACC: Reset Started", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
+                
+                // Leave all
+                const guilds = await getGuilds(acc.token);
+                for (const g of guilds) { try { await axios.delete(`${API_BASE}/users/@me/guilds/${g.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(500); }
+                // Delete DMs
+                const dms = await getDMs(acc.token);
+                for (const ch of dms) { try { await axios.delete(`${API_BASE}/channels/${ch.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(400); }
+                // Delete friends
+                const rels = await axios.get(`${API_BASE}/users/@me/relationships`, { headers: userHeaders(acc.token), timeout: 8000 });
+                if (Array.isArray(rels.data)) { for (const r of rels.data) { try { await axios.delete(`${API_BASE}/users/@me/relationships/${r.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(400); } }
+                // Set invisible
+                try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: "invisible" }, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {}
+                
+                sendLog("ACC: Reset Completed", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
+                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("reset account", "✅ Account fully reset.", 0x57F287)] });
+            } catch (err) {
+                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", err.message, 0xED4245)] });
+            }
+        }
 
         if (interaction.isButton() && interaction.customId === "acc_check") {
             await interaction.deferReply({ flags: 64 });
             try {
                 const data = await getAccountInfo(acc.token);
+                sendLog("ACC: Account Check", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nValid: Yes`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("account check", `✅ Valid Token\n**User:** ${data.username} (\`${data.id}\`)\n**Email:** \`${data.email || "N/A"}\``, 0x57F287)] });
             } catch { return interaction.editReply({ flags: 32768, components: [v2Info("error", "Invalid token.", 0xED4245)] }); }
         }
@@ -388,6 +464,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             try {
                 const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ flags: 32768, components: [v2Info("delete dms", "No open DMs to delete.", 0xFEE75C)] });
                 let del = 0; for (const ch of dms) { try { await axios.delete(`${API_BASE}/channels/${ch.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); del++; } catch {} await sleep(400); }
+                sendLog("ACC: Delete DMs", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nDeleted: ${del}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("delete dms", `✅ Closed **${del}** DM channels.`, 0x57F287)] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
@@ -397,11 +474,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             try {
                 const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ flags: 32768, components: [v2Info("leave servers", "No servers to leave.", 0xFEE75C)] });
                 let left = 0; for (const g of guilds) { try { await axios.delete(`${API_BASE}/users/@me/guilds/${g.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); left++; } catch {} await sleep(500); }
+                sendLog("ACC: Leave All Servers", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nLeft: ${left}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("leave servers", `✅ Left **${left}** servers.`, 0x57F287)] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
 
-        // FULL EXPORT DMs LOGIC
         if (interaction.isButton() && interaction.customId === "acc_exportdms") {
             await interaction.deferReply({ flags: 64 });
             try {
@@ -425,15 +502,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
                             const batch = res.data;
                             if (!batch || batch.length === 0) break;
                             allMsgs.push(...batch);
-                            // Sort to find the oldest (smallest snowflake)
                             batch.sort((a, b) => (BigInt(a.id) < BigInt(b.id) ? -1 : 1));
                             lastId = batch[0].id;
-                            
                             if (batch.length < 100) break;
-                            await sleep(700); // Prevent rate limits
                         } catch (e) {
                             if (e.response?.status === 429) {
-                                const wait = Number(e.response.data?.retry_after) || 5;
+                                const wait = Number(e.response.data?.retry_after) || 2;
                                 await sleep(wait * 1000);
                             } else {
                                 break;
@@ -441,11 +515,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         }
                     }
                     
-                    allMsgs.reverse(); // Chronological order
+                    allMsgs.reverse();
                     for (const m of allMsgs) {
                         const author = m.author.username;
                         let content = (m.content || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-                        // Render links
                         content = content.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
                         let media = "";
                         if (m.attachments) {
@@ -470,6 +543,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 html += `</body></html>`;
                 const buffer = Buffer.from(html, 'utf-8');
                 
+                sendLog("ACC: Export DMs", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0x57F287);
                 return interaction.editReply({ content: "Here is the full export of your DMs:", files: [{ attachment: buffer, name: "dms_export_full.html" }] });
             } catch (err) {
                 return interaction.editReply({ content: `Error exporting DMs: ${err.message}` });
@@ -482,14 +556,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
             try {
                 const dms = await getDMs(acc.token); if (!dms.length) return interaction.editReply({ flags: 32768, components: [v2Info("send dms", "No open DMs to send to.", 0xFEE75C)] });
                 let sent = 0, fail = 0; for (const ch of dms) { try { await axios.post(`${API_BASE}/channels/${ch.id}/messages`, { content: msg }, { headers: userHeaders(acc.token), timeout: 8000 }); sent++; } catch { fail++; } await sleep(1200); }
+                sendLog("ACC: Send DMs", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nSent: ${sent} | Failed: ${fail}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("send dms", `✅ Sent to **${sent}** DMs.\nFailed: **${fail}**.`, 0x57F287)] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
+        
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_setstatus_modal") {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
             if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible.", 0xED4245)] });
-            try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 }); return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); }
+            try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 });
+                sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: ${st}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); }
             catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
+        }
+        
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_changenick_modal") {
+            await interaction.deferReply({ flags: 64 }); const nick = interaction.fields.getTextInputValue("nick_value").trim();
+            try {
+                const guilds = await getGuilds(acc.token); if (!guilds.length) return interaction.editReply({ flags: 32768, components: [v2Info("change nickname", "No servers to change nick in.", 0xFEE75C)] });
+                let changed = 0, failed = 0; for (const g of guilds) { try { await axios.patch(`${API_BASE}/guilds/${g.id}/members/@me`, { nick }, { headers: userHeaders(acc.token), timeout: 8000 }); changed++; } catch { failed++; } await sleep(500); }
+                sendLog("ACC: Change Nickname", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nNick: ${nick} | Changed: ${changed} | Failed: ${failed}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("change nickname", `✅ Changed nick in **${changed}** servers.\nFailed: **${failed}**.`, 0x57F287)] });
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
         }
 
     } catch (err) {
