@@ -29,15 +29,11 @@ let logsChannelId = null;
 // Hardcoded Presences
 const prePresences = [
     {
-        id: "leth4l",
-        label: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
-        type: 0, // 0 = Playing, 1 = Streaming
-        name: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
-        app_id: "1554029590392078347",
-        details: "R41d • sp4m • autoquest and more…",
-        state: ".gg/VQRjf9Skd9",
-        large_image: "destruyendolas",
-        large_text: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱"
+        id: "youtube",
+        label: "YouTube",
+        type: 1, // 1 = Streaming
+        name: "YouTube",
+        url: "https://www.youtube.com/"
     }
 ];
 
@@ -325,7 +321,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -773,14 +769,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // FIX: Using setPresence with camelCase properties for Rich Presence
             const activityData = {
                 name: presence.name,
-                type: presence.type,
-                applicationId: presence.app_id, // camelCase
-                details: presence.details,
-                state: presence.state,
-                assets: {
-                    largeImage: presence.large_image, // camelCase
-                    largeText: presence.large_text // camelCase
-                }
+                type: presence.type, // 1 for Streaming
+                url: presence.url // "https://www.youtube.com/"
             };
 
             try {
