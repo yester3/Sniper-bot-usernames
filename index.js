@@ -1,4 +1,5 @@
 const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
+const { Client: SelfbotClient } = require("discord.js-selfbot-v13");
 const axios = require("axios");
 
 // CRASH PROTECTION
@@ -374,6 +375,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     { type: 2, style: 2, label: "Account check", custom_id: "acc_check" },
                     { type: 2, style: 2, label: "Change Nickname", custom_id: "acc_changenick" },
                     { type: 2, style: 4, label: "Reset Account", custom_id: "acc_reset" }
+                ]},
+                { type: 1, components: [
+                    { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -381,8 +385,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // /acc FUNCTIONS LOGIC
         if (interaction.isButton() && interaction.customId === "acc_senddms") return interaction.showModal({ custom_id: "acc_senddms_modal", title: "Send DMs", components: [{ type: 1, components: [{ type: 4, custom_id: "dm_message", style: 2, label: "Message to send", required: true }] }] });
-        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online, idle, dnd, invisible)", required: true }] }] });
+        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online, idle, dnd, invisible, streaming)", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
+        if (interaction.isButton() && interaction.customId === "acc_hypesquad") return interaction.showModal({ custom_id: "acc_hypesquad_modal", title: "HypeSquad", components: [{ type: 1, components: [{ type: 4, custom_id: "house_id", style: 1, label: "House (1=Bravery, 2=Brilliance, 3=Balance)", required: true }] }] });
         
         if (interaction.isButton() && interaction.customId === "acc_reset") {
             const c = { type: 17, accent_color: 0xED4245, components: [
@@ -401,16 +406,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
             try {
                 sendLog("ACC: Reset Started", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
                 
-                // Leave all
                 const guilds = await getGuilds(acc.token);
                 for (const g of guilds) { try { await axios.delete(`${API_BASE}/users/@me/guilds/${g.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(500); }
-                // Delete DMs
                 const dms = await getDMs(acc.token);
                 for (const ch of dms) { try { await axios.delete(`${API_BASE}/channels/${ch.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(400); }
-                // Delete friends
                 const rels = await axios.get(`${API_BASE}/users/@me/relationships`, { headers: userHeaders(acc.token), timeout: 8000 });
                 if (Array.isArray(rels.data)) { for (const r of rels.data) { try { await axios.delete(`${API_BASE}/users/@me/relationships/${r.id}`, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {} await sleep(400); } }
-                // Set invisible
                 try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: "invisible" }, { headers: userHeaders(acc.token), timeout: 8000 }); } catch {}
                 
                 sendLog("ACC: Reset Completed", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
@@ -563,11 +564,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_setstatus_modal") {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
-            if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible.", 0xED4245)] });
-            try { await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 });
-                sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: ${st}`, 0x57F287);
-                return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); }
-            catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
+            
+            if (st === "streaming") {
+                try {
+                    const self = new SelfbotClient();
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
+                        self.once('ready', () => { clearTimeout(timeout); resolve(); });
+                        self.login(acc.token).catch(reject);
+                    });
+                    
+                    self.user.setActivity({ type: "STREAMING", name: "Streaming on Twitch", url: "https://twitch.tv/monstercat" });
+                    await sleep(5000); // Wait for Gateway to cache presence
+                    self.destroy();
+                    
+                    sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: Streaming (Gateway)`, 0x57F287);
+                    return interaction.editReply({ flags: 32768, components: [v2Info("status", "✅ Streaming status applied via Gateway.", 0x57F287)] });
+                } catch (err) {
+                    return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed to set streaming status: \`${err.message}\``, 0xED4245)] });
+                }
+            } else {
+                if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible, streaming.", 0xED4245)] });
+                try { 
+                    await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 });
+                    sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: ${st}`, 0x57F287);
+                    return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); 
+                } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
+            }
         }
         
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_changenick_modal") {
@@ -578,6 +601,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 sendLog("ACC: Change Nickname", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nNick: ${nick} | Changed: ${changed} | Failed: ${failed}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("change nickname", `✅ Changed nick in **${changed}** servers.\nFailed: **${failed}**.`, 0x57F287)] });
             } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", err.message, 0xED4245)] }); }
+        }
+        
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_hypesquad_modal") {
+            await interaction.deferReply({ flags: 64 });
+            const houseId = parseInt(interaction.fields.getTextInputValue("house_id").trim());
+            if (![1, 2, 3].includes(houseId)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid house ID. Use 1 (Bravery), 2 (Brilliance), or 3 (Balance).", 0xED4245)] });
+            
+            try {
+                await axios.post(`${API_BASE}/hypesquad/online`, { house_id: houseId }, { headers: userHeaders(acc.token), timeout: 8000 });
+                const houseName = {1: "Bravery", 2: "Brilliance", 3: "Balance"}[houseId];
+                sendLog("ACC: HypeSquad Changed", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nHouse: ${houseName}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("hypesquad", `✅ HypeSquad house set to **${houseName}**.`, 0x57F287)] });
+            } catch (err) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] });
+            }
         }
 
     } catch (err) {
