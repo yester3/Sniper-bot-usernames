@@ -304,7 +304,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -377,7 +377,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     { type: 2, style: 4, label: "Reset Account", custom_id: "acc_reset" }
                 ]},
                 { type: 1, components: [
-                    { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" }
+                    { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" },
+                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -385,12 +386,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // /acc FUNCTIONS LOGIC
         if (interaction.isButton() && interaction.customId === "acc_senddms") return interaction.showModal({ custom_id: "acc_senddms_modal", title: "Send DMs", components: [{ type: 1, components: [{ type: 4, custom_id: "dm_message", style: 2, label: "Message to send", required: true }] }] });
-        // FIX: Label shortened to 44 chars
-        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online/idle/dnd/invisible/stream)", required: true }] }] });
+        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online/idle/dnd/invisible)", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
-        // FIX: Label shortened to 38 chars
         if (interaction.isButton() && interaction.customId === "acc_hypesquad") return interaction.showModal({ custom_id: "acc_hypesquad_modal", title: "HypeSquad", components: [{ type: 1, components: [{ type: 4, custom_id: "house_id", style: 1, label: "House (1=Bravery, 2=Brilliance, 3=Balance)", required: true }] }] });
         
+        // PRESENCES MODAL
+        if (interaction.isButton() && interaction.customId === "acc_presence") {
+            return interaction.showModal({ custom_id: "acc_presence_modal", title: "Custom Presence", components: [
+                { type: 1, components: [{ type: 4, custom_id: "p_type", style: 1, label: "Type (playing/streaming)", required: true }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_name", style: 1, label: "Name (Title)", required: true }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_details", style: 1, label: "Details (Desc 1)", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_state", style: 1, label: "State (Desc 2)", required: false }] }
+            ]});
+        }
+
         if (interaction.isButton() && interaction.customId === "acc_reset") {
             const c = { type: 17, accent_color: 0xED4245, components: [
                 { type: 10, content: "## confirm reset\n\nThis will **destroy** the account:\n- Leave all servers\n- Close all DMs\n- Remove all friends\n- Set status to invisible\n\nAre you sure?" }, { type: 14, divider: true, spacing: true },
@@ -567,34 +576,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_setstatus_modal") {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
             
-            if (st === "streaming") {
-                await interaction.editReply({ flags: 32768, components: [v2Info("status", "Connecting to Gateway to apply streaming status...", 0xFEE75C)] });
-                
-                try {
-                    const self = new SelfbotClient();
-                    await new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
-                        self.once('ready', () => { clearTimeout(timeout); resolve(); });
-                        self.login(acc.token).catch(reject);
-                    });
-                    
-                    self.user.setActivity({ type: "STREAMING", name: "Streaming on Twitch", url: "https://twitch.tv/monstercat" });
-                    await sleep(5000);
-                    self.destroy();
-                    
-                    sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: Streaming (Gateway)`, 0x57F287);
-                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("status", "✅ Streaming status applied via Gateway.", 0x57F287)] });
-                } catch (err) {
-                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
-                }
-            } else {
-                if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible, streaming.", 0xED4245)] });
-                try { 
-                    await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 });
-                    sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: ${st}`, 0x57F287);
-                    return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); 
-                } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
-            }
+            if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible.", 0xED4245)] });
+            try { 
+                await axios.patch(`${API_BASE}/users/@me/settings`, { status: st }, { headers: userHeaders(acc.token), timeout: 8000 });
+                sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: ${st}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("status", `✅ Status changed to ${st}.`, 0x57F287)] }); 
+            } catch (err) { return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] }); }
         }
         
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_changenick_modal") {
@@ -619,6 +606,50 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("hypesquad", `✅ HypeSquad house set to **${houseName}**.`, 0x57F287)] });
             } catch (err) {
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] });
+            }
+        }
+
+        // PRESENCES MODAL LOGIC
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_presence_modal") {
+            await interaction.deferReply({ flags: 64 });
+            const type = interaction.fields.getTextInputValue("p_type").trim().toLowerCase();
+            const name = interaction.fields.getTextInputValue("p_name").trim();
+            const details = interaction.fields.getTextInputValue("p_details").trim() || undefined;
+            const state = interaction.fields.getTextInputValue("p_state").trim() || undefined;
+
+            if (!["playing", "streaming"].includes(type)) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid type. Use 'playing' or 'streaming'.", 0xED4245)] });
+            }
+
+            await interaction.editReply({ flags: 32768, components: [v2Info("presence", "Connecting to Gateway to apply presence...", 0xFEE75C)] });
+
+            try {
+                const self = new SelfbotClient();
+                await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
+                    self.once('ready', () => { clearTimeout(timeout); resolve(); });
+                    self.login(acc.token).catch(reject);
+                });
+
+                const activityData = {
+                    type: type === "streaming" ? "STREAMING" : "PLAYING",
+                    name: name,
+                    details: details,
+                    state: state
+                };
+
+                if (type === "streaming") {
+                    activityData.url = "https://twitch.tv/monstercat"; // Force purple icon
+                }
+
+                self.user.setActivity(activityData);
+                await sleep(5000); // Wait for Gateway to cache
+                self.destroy();
+
+                sendLog("ACC: Custom Presence", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nType: ${type}\nName: ${name}`, 0x57F287);
+                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("presence", "✅ Custom presence applied via Gateway.", 0x57F287)] });
+            } catch (err) {
+                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
             }
         }
 
