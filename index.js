@@ -54,7 +54,6 @@ function v2Info(title, text, color = 1) {
     ]};
 }
 
-// Fix: Correct ArrayBuffer to base64 conversion
 async function urlToDataURI(url) {
     const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
     const mime = res.headers['content-type'] || 'image/png';
@@ -681,29 +680,52 @@ client.on(Events.InteractionCreate, async (interaction) => {
             const avatarUrl = interaction.fields.getTextInputValue("p_avatar").trim();
             const bannerUrl = interaction.fields.getTextInputValue("p_banner").trim();
 
-            const payload = {};
-            if (displayName) payload.global_name = displayName;
-            if (bio) payload.bio = bio;
-            
-            if (Object.keys(payload).length === 0 && !avatarUrl && !bannerUrl) {
+            if (!displayName && !bio && !avatarUrl && !bannerUrl) {
                 return interaction.editReply({ flags: 32768, components: [v2Info("profile", "No changes made. Please fill at least one field.", 0xFEE75C)] });
             }
 
-            try {
-                if (avatarUrl) payload.avatar = await urlToDataURI(avatarUrl);
-                if (bannerUrl) payload.banner = await urlToDataURI(bannerUrl);
-            } catch (err) {
-                return interaction.editReply({ flags: 32768, components: [v2Info("error", "Failed to fetch image URLs. Make sure they are direct links.", 0xED4245)] });
+            const results = [];
+            // Helper to patch one field at a time and catch exact Discord errors
+            const patch = async (body) => {
+                try {
+                    await axios.patch(`${API_BASE}/users/@me`, body, { headers: createHeaders(acc.token), timeout: 15000 });
+                    return true;
+                } catch (err) {
+                    const errData = err.response?.data ? JSON.stringify(err.response.data) : err.message;
+                    console.error("Profile Patch Error:", errData);
+                    return `❌ Failed: \`${errData.slice(0, 500)}\``;
+                }
+            };
+
+            if (displayName) {
+                const res = await patch({ global_name: displayName });
+                results.push(res === true ? "✅ Display Name updated" : res);
+            }
+            if (bio) {
+                const res = await patch({ bio });
+                results.push(res === true ? "✅ Bio updated" : res);
+            }
+            if (avatarUrl) {
+                try {
+                    const dataURI = await urlToDataURI(avatarUrl);
+                    const res = await patch({ avatar: dataURI });
+                    results.push(res === true ? "✅ Avatar updated" : res);
+                } catch (err) {
+                    results.push("❌ Avatar failed: Invalid URL or fetch error.");
+                }
+            }
+            if (bannerUrl) {
+                try {
+                    const dataURI = await urlToDataURI(bannerUrl);
+                    const res = await patch({ banner: dataURI });
+                    results.push(res === true ? "✅ Banner updated" : res);
+                } catch (err) {
+                    results.push("❌ Banner failed: Invalid URL or fetch error.");
+                }
             }
 
-            try {
-                // Fix: Use createHeaders instead of userHeaders for profile modifications
-                await axios.patch(`${API_BASE}/users/@me`, payload, { headers: createHeaders(acc.token), timeout: 15000 });
-                sendLog("ACC: Profile Updated", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nFields: ${Object.keys(payload).join(", ")}`, 0x57F287);
-                return interaction.editReply({ flags: 32768, components: [v2Info("profile", "✅ Profile updated successfully.", 0x57F287)] });
-            } catch (err) {
-                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] });
-            }
+            sendLog("ACC: Profile Updated", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nResults: ${results.join(", ")}`, 0x57F287);
+            return interaction.editReply({ flags: 32768, components: [v2Info("profile", results.join("\n"), 0x57F287)] });
         }
 
     } catch (err) {
