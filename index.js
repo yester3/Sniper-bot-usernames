@@ -1,7 +1,6 @@
 const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
 const { Client: SelfbotClient } = require("discord.js-selfbot-v13");
 const axios = require("axios");
-const crypto = require("crypto");
 
 // CRASH PROTECTION
 process.on('unhandledRejection', (reason, promise) => {
@@ -24,7 +23,23 @@ const CHARS = "abcdefghijklmnopqrstuvwxyz";
 
 const userConfig = new Map();
 const accConfig = new Map();
+const preAccConfig = new Map();
 let logsChannelId = null;
+
+// Hardcoded Presences
+const prePresences = [
+    {
+        id: "leth4l",
+        label: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
+        type: "PLAYING",
+        name: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
+        app_id: "1554029590392078347",
+        details: "R41d • sp4m • autoquest and more…",
+        state: ".gg/VQRjf9Skd9",
+        large_image: "Destruyendolas",
+        large_text: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱"
+    }
+];
 
 function defaultConfig() {
     return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
@@ -45,42 +60,6 @@ function userHeaders(token) {
     return { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json" };
 }
 
-// DEDICATED HEADERS FOR PROFILE MODIFICATION (Bypasses CAPTCHA)
-async function profileHeaders(token) {
-    // Fetch cookies first
-    const site = await axios.get("https://discord.com", { headers: { "User-Agent": USER_AGENT }, timeout: 8000 });
-    const cookies = site.headers['set-cookie']?.map(c => c.split(';')[0]).join('; ') || "";
-    
-    // Generate a random 128-byte hex fingerprint
-    const fingerprint = crypto.randomBytes(64).toString('hex');
-    
-    const superProperties = Buffer.from(JSON.stringify({
-        os: "Windows", browser: "Chrome", device: "", system_locale: "en-US",
-        browser_user_agent: USER_AGENT, browser_version: "120.0.0.0", os_version: "10",
-        release_channel: "stable", client_build_number: 298162, // Updated build number
-        client_event_source: null
-    })).toString("base64");
-
-    return {
-        Authorization: token,
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENT,
-        "X-Super-Properties": superProperties,
-        "X-Discord-Locale": "en-US",
-        "X-Fingerprint": fingerprint,
-        "Accept-Language": "en-US,en;q=0.9",
-        Origin: "https://discord.com",
-        Referer: "https://discord.com/",
-        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-origin",
-        cookie: cookies
-    };
-}
-
 function randomUsername(length) { let u = ""; for (let i = 0; i < length; i++) u += CHARS[Math.floor(Math.random() * CHARS.length)]; return u; }
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -89,12 +68,6 @@ function v2Info(title, text, color = 1) {
         { type: 10, content: `## ${title}` }, { type: 14, divider: true, spacing: true },
         { type: 10, content: text }
     ]};
-}
-
-async function urlToDataURI(url) {
-    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
-    const mime = res.headers['content-type'] || 'image/png';
-    return `data:${mime};base64,${Buffer.from(res.data).toString('base64')}`;
 }
 
 async function sendLog(title, description, color = 0x2B2D31) {
@@ -183,6 +156,7 @@ client.once(Events.ClientReady, async (c) => {
             { name: "2nip3r", description: "Open the username sniper interface." },
             { name: "token-info", description: "Get information from a Discord token." },
             { name: "acc", description: "Open the automated accounts panel." },
+            { name: "pre", description: "Open the free Presences panel." },
             { name: "logs", description: "Configure the logs channel.", options: [{ type: 7, name: "channel", description: "The channel for logs", required: true }] }
         ]);
         console.log("Commands registered.");
@@ -196,12 +170,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // AUTH LOCKS
         if (interaction.isChatInputCommand() && interaction.commandName === "2nip3r" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
         if (interaction.isChatInputCommand() && interaction.commandName === "acc" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
+        if (interaction.isChatInputCommand() && interaction.commandName === "pre" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
         if (interaction.isChatInputCommand() && interaction.commandName === "logs" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
 
         if (!userConfig.has(userId)) userConfig.set(userId, defaultConfig());
         if (!accConfig.has(userId)) accConfig.set(userId, defaultAccConfig());
+        if (!preAccConfig.has(userId)) preAccConfig.set(userId, defaultAccConfig());
+        
         const config = userConfig.get(userId);
         const acc = accConfig.get(userId);
+        const preAcc = preAccConfig.get(userId);
 
         // /logs COMMAND
         if (interaction.isChatInputCommand() && interaction.commandName === "logs") {
@@ -427,8 +405,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 ]},
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" },
-                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" },
-                    { type: 2, style: 2, label: "Profile", custom_id: "acc_profile" }
+                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -446,15 +423,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 { type: 1, components: [{ type: 4, custom_id: "p_name", style: 1, label: "Name (Title)", required: true }] },
                 { type: 1, components: [{ type: 4, custom_id: "p_details", style: 1, label: "Details (Desc 1)", required: false }] },
                 { type: 1, components: [{ type: 4, custom_id: "p_state", style: 1, label: "State (Desc 2)", required: false }] }
-            ]});
-        }
-
-        if (interaction.isButton() && interaction.customId === "acc_profile") {
-            return interaction.showModal({ custom_id: "acc_profile_modal", title: "Edit Profile", components: [
-                { type: 1, components: [{ type: 4, custom_id: "p_displayname", style: 1, label: "Display Name", required: false }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_bio", style: 2, label: "Biography (About Me)", required: false }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_avatar", style: 1, label: "Avatar URL (Direct Link)", required: false }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_banner", style: 1, label: "Banner URL (Direct Link)", required: false }] }
             ]});
         }
 
@@ -710,60 +678,131 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_profile_modal") {
+        // /pre COMMAND
+        if (interaction.isChatInputCommand() && interaction.commandName === "pre") {
+            const c = { type: 17, accent_color: 0x2B2D31, components: [
+                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 14, divider: true, spacing: true },
+                { type: 10, content: "# free Presences\n♱ 𝑳𝒆𝒕𝒉4𝒍  ♱" },
+                { type: 14, divider: true, spacing: true },
+                { type: 10, content: "Presences gratuitas y pre configuradas usando tu token de discord\nEliges una y se activa automáticamente\n\n• 𝐋𝐨𝐠𝐢𝐧- conecta con tu token \n• 𝐕𝐞𝐫 𝐏𝐫𝐞𝐬𝐞𝐧𝐜𝐞𝐬- muestra todas las Presences podrás elegir una\n• 𝐋𝐨𝐠 𝐨𝐮𝐭- desconecta tu token, la presence desaparecerá automáticamente, deberás volver a hacer login y elegir la presence que quieras utilizar" },
+                { type: 14, divider: true, spacing: true },
+                { type: 1, components: [
+                    { type: 2, style: 2, label: "Login", custom_id: "pre_login" },
+                    { type: 2, style: 2, label: "Ver Presences", custom_id: "pre_view" },
+                    { type: 2, style: 2, label: "Log out", custom_id: "pre_logout" }
+                ]},
+                { type: 14, divider: true, spacing: true },
+                { type: 10, content: "# descarga de responsabilidad\nEsta herramienta interactúa con la API interna de Discord. Úsala bajo tu propio riesgo.\n• Automatizar acciones en cuentas de usuario puede violar los Términos de Servicio de Discord.\n• El autor no se hace responsable de ninguna sanción o acción tomada por Discord contra tu cuenta." }
+            ]};
+            await interaction.channel.send({ flags: 32768, components: [c] }).catch(console.error);
+            return interaction.reply({ flags: 64, content: "Panel deployed." }).catch(console.error);
+        }
+
+        // /pre BUTTONS
+        if (interaction.isButton() && interaction.customId === "pre_login") {
+            return interaction.showModal({ custom_id: "pre_login_modal", title: "Login", components: [{ type: 1, components: [{ type: 4, custom_id: "pre_token", style: 1, label: "Account Token", required: true }] }] });
+        }
+        
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "pre_login_modal") {
             await interaction.deferReply({ flags: 64 });
-            const displayName = interaction.fields.getTextInputValue("p_displayname").trim();
-            const bio = interaction.fields.getTextInputValue("p_bio").trim();
-            const avatarUrl = interaction.fields.getTextInputValue("p_avatar").trim();
-            const bannerUrl = interaction.fields.getTextInputValue("p_banner").trim();
-
-            if (!displayName && !bio && !avatarUrl && !bannerUrl) {
-                return interaction.editReply({ flags: 32768, components: [v2Info("profile", "No changes made. Please fill at least one field.", 0xFEE75C)] });
+            const token = interaction.fields.getTextInputValue("pre_token").trim();
+            
+            let data;
+            try {
+                data = await getAccountInfo(token);
+            } catch (err) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}`, 0xED4245)] });
             }
+            
+            preAcc.token = token;
+            
+            let dmsCount = 0, guildsCount = 0;
+            try { const dms = await getDMs(token); dmsCount = dms.length; } catch (e) {}
+            try { const guilds = await getGuilds(token); guildsCount = guilds.length; } catch (e) {}
+            
+            const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
+            const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
+            const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
+            
+            sendLog("PRE: Login Successful", `User: <@${userId}> (\`${userId}\`)\nToken: \`${token.slice(0,15)}...\`\nAcc: ${data.username} (\`${data.id}\`)`, 0x57F287);
+            
+            const c = { type: 17, accent_color: 0x57F287, components: [
+                { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
+                { type: 9, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
+            ]};
+            return interaction.editReply({ flags: 32768, components: [c] });
+        }
 
-            const results = [];
-            // Helper to patch one field at a time and catch exact Discord errors
-            const patch = async (body) => {
-                try {
-                    const headers = await profileHeaders(acc.token); // Use dedicated headers
-                    await axios.patch(`${API_BASE}/users/@me`, body, { headers, timeout: 15000 });
-                    return true;
-                } catch (err) {
-                    const errData = err.response?.data ? JSON.stringify(err.response.data) : err.message;
-                    console.error("Profile Patch Error:", errData);
-                    return `❌ Failed: \`${errData.slice(0, 500)}\``;
+        if (interaction.isButton() && interaction.customId === "pre_logout") {
+            if (!preAcc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
+            
+            if (preAcc.selfbot) {
+                try { await preAcc.selfbot.destroy(); } catch (e) { console.error("Selfbot destroy error:", e.message); }
+                preAcc.selfbot = null;
+            }
+            
+            sendLog("PRE: Logout", `User: <@${userId}> (\`${userId}\`)\nToken: \`${preAcc.token.slice(0,15)}...\``, 0xED4245);
+            preAcc.token = null;
+            return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed and presence disconnected.")] });
+        }
+
+        if (interaction.isButton() && interaction.customId === "pre_view") {
+            if (!preAcc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "No token found. Please use **Login** first.", 0xED4245)] });
+            
+            const buttons = prePresences.map(p => ({ type: 2, style: 2, label: p.label.slice(0, 80), custom_id: `pre_select_${p.id}` }));
+            const rows = [];
+            for (let i = 0; i < buttons.length; i += 5) {
+                rows.push({ type: 1, components: buttons.slice(i, i + 5) });
+            }
+            
+            const c = { type: 17, accent_color: 0x2B2D31, components: [
+                { type: 10, content: "## select presence" }, { type: 14, divider: true, spacing: true },
+                ...rows
+            ]};
+            return interaction.reply({ flags: 32768 | 64, components: [c] });
+        }
+
+        // PRESENCE SELECTION LOGIC
+        if (interaction.isButton() && interaction.customId.startsWith("pre_select_")) {
+            const presenceId = interaction.customId.replace("pre_select_", "");
+            const presence = prePresences.find(p => p.id === presenceId);
+            
+            if (!presence) return interaction.reply({ flags: 64, content: "Presence not found." });
+            
+            await interaction.deferReply({ flags: 64 });
+            
+            const activityData = {
+                type: presence.type,
+                name: presence.name,
+                application_id: presence.app_id,
+                details: presence.details,
+                state: presence.state,
+                assets: {
+                    large_image: presence.large_image,
+                    large_text: presence.large_text || presence.name
                 }
             };
 
-            if (displayName) {
-                const res = await patch({ global_name: displayName });
-                results.push(res === true ? "✅ Display Name updated" : res);
-            }
-            if (bio) {
-                const res = await patch({ bio });
-                results.push(res === true ? "✅ Bio updated" : res);
-            }
-            if (avatarUrl) {
-                try {
-                    const dataURI = await urlToDataURI(avatarUrl);
-                    const res = await patch({ avatar: dataURI });
-                    results.push(res === true ? "✅ Avatar updated" : res);
-                } catch (err) {
-                    results.push("❌ Avatar failed: Invalid URL or fetch error.");
+            try {
+                if (!preAcc.selfbot) {
+                    preAcc.selfbot = new SelfbotClient();
+                    preAcc.selfbot.on('error', (e) => console.error("Pre Selfbot error:", e.message));
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
+                        preAcc.selfbot.once('ready', () => { clearTimeout(timeout); resolve(); });
+                        preAcc.selfbot.login(preAcc.token).catch(reject);
+                    });
                 }
+                
+                preAcc.selfbot.user.setActivity(activityData);
+                
+                sendLog("PRE: Presence Applied", `User: <@${userId}> (\`${userId}\`)\nPresence: ${presence.label}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence **${presence.label}** applied and connection maintained.`, 0x57F287)] });
+            } catch (err) {
+                if (preAcc.selfbot) { try { await preAcc.selfbot.destroy(); } catch {} preAcc.selfbot = null; }
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
             }
-            if (bannerUrl) {
-                try {
-                    const dataURI = await urlToDataURI(bannerUrl);
-                    const res = await patch({ banner: dataURI });
-                    results.push(res === true ? "✅ Banner updated" : res);
-                } catch (err) {
-                    results.push("❌ Banner failed: Invalid URL or fetch error.");
-                }
-            }
-
-            sendLog("ACC: Profile Updated", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nResults: ${results.join(", ")}`, 0x57F287);
-            return interaction.editReply({ flags: 32768, components: [v2Info("profile", results.join("\n"), 0x57F287)] });
         }
 
     } catch (err) {
