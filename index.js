@@ -304,7 +304,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -385,8 +385,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // /acc FUNCTIONS LOGIC
         if (interaction.isButton() && interaction.customId === "acc_senddms") return interaction.showModal({ custom_id: "acc_senddms_modal", title: "Send DMs", components: [{ type: 1, components: [{ type: 4, custom_id: "dm_message", style: 2, label: "Message to send", required: true }] }] });
-        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online, idle, dnd, invisible, streaming)", required: true }] }] });
+        // FIX: Label shortened to 44 chars
+        if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online/idle/dnd/invisible/stream)", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
+        // FIX: Label shortened to 38 chars
         if (interaction.isButton() && interaction.customId === "acc_hypesquad") return interaction.showModal({ custom_id: "acc_hypesquad_modal", title: "HypeSquad", components: [{ type: 1, components: [{ type: 4, custom_id: "house_id", style: 1, label: "House (1=Bravery, 2=Brilliance, 3=Balance)", required: true }] }] });
         
         if (interaction.isButton() && interaction.customId === "acc_reset") {
@@ -566,7 +568,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
             
             if (st === "streaming") {
-                // Immediate response to prevent timeout
                 await interaction.editReply({ flags: 32768, components: [v2Info("status", "Connecting to Gateway to apply streaming status...", 0xFEE75C)] });
                 
                 try {
@@ -578,13 +579,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                     
                     self.user.setActivity({ type: "STREAMING", name: "Streaming on Twitch", url: "https://twitch.tv/monstercat" });
-                    await sleep(5000); // Wait for Gateway to cache
+                    await sleep(5000);
                     self.destroy();
                     
                     sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: Streaming (Gateway)`, 0x57F287);
                     return interaction.followUp({ flags: 32768 | 64, components: [v2Info("status", "✅ Streaming status applied via Gateway.", 0x57F287)] });
                 } catch (err) {
-                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed to set streaming status: \`${err.message}\``, 0xED4245)] });
+                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
                 }
             } else {
                 if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible, streaming.", 0xED4245)] });
