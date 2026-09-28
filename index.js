@@ -54,11 +54,11 @@ function v2Info(title, text, color = 1) {
     ]};
 }
 
-// Helper to convert image URL to Discord required base64 format
+// Fix: Correct ArrayBuffer to base64 conversion
 async function urlToDataURI(url) {
     const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
     const mime = res.headers['content-type'] || 'image/png';
-    return `data:${mime};base64,${Buffer.from(res.data, 'binary').toString('base64')}`;
+    return `data:${mime};base64,${Buffer.from(res.data).toString('base64')}`;
 }
 
 async function sendLog(title, description, color = 0x2B2D31) {
@@ -674,7 +674,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        // PROFILE MODAL LOGIC
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_profile_modal") {
             await interaction.deferReply({ flags: 64 });
             const displayName = interaction.fields.getTextInputValue("p_displayname").trim();
@@ -698,7 +697,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
 
             try {
-                await axios.patch(`${API_BASE}/users/@me`, payload, { headers: userHeaders(acc.token), timeout: 15000 });
+                // Fix: Use createHeaders instead of userHeaders for profile modifications
+                await axios.patch(`${API_BASE}/users/@me`, payload, { headers: createHeaders(acc.token), timeout: 15000 });
                 sendLog("ACC: Profile Updated", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nFields: ${Object.keys(payload).join(", ")}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("profile", "✅ Profile updated successfully.", 0x57F287)] });
             } catch (err) {
