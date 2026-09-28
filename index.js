@@ -31,7 +31,7 @@ const prePresences = [
     {
         id: "leth4l",
         label: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
-        type: "PLAYING",
+        type: 0, // 0 = Playing, 1 = Streaming
         name: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱",
         app_id: "1554029590392078347",
         details: "R41d • sp4m • autoquest and more…",
@@ -325,7 +325,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -646,17 +646,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid type. Use 'playing' or 'streaming'.", 0xED4245)] });
             }
 
-            // FIX: camelCase for discord.js
+            // Raw Payload for Custom Presence (No images supported here)
             const activityData = {
-                type: type === "streaming" ? "STREAMING" : "PLAYING",
                 name: name,
+                type: type === "streaming" ? 1 : 0,
                 details: details,
-                state: state
+                state: state,
+                instance: 0
             };
-
-            if (type === "streaming") {
-                activityData.url = "https://twitch.tv/monstercat";
-            }
+            if (type === "streaming") activityData.url = "https://twitch.tv/monstercat";
 
             try {
                 if (!acc.selfbot) {
@@ -669,7 +667,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                 }
                 
-                acc.selfbot.user.setActivity(activityData);
+                // Send raw Gateway payload
+                acc.selfbot.shards.first().send({
+                    op: 3,
+                    d: {
+                        since: Date.now(),
+                        activities: [activityData],
+                        status: "online",
+                        afk: false
+                    }
+                });
                 
                 sendLog("ACC: Custom Presence", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nType: ${type}\nName: ${name}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence applied and connection maintained.`, 0x57F287)] });
@@ -773,17 +780,18 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             await interaction.deferReply({ flags: 64 });
             
-            // FIX: camelCase properties for discord.js-selfbot-v13
+            // Raw Payload for Rich Presence (With Images)
             const activityData = {
-                type: presence.type, // "PLAYING"
                 name: presence.name,
-                applicationId: presence.app_id, // camelCase
+                type: presence.type, // 0 for Playing, 1 for Streaming
+                application_id: presence.app_id,
                 details: presence.details,
                 state: presence.state,
                 assets: {
-                    largeImage: presence.large_image, // camelCase
-                    largeText: presence.large_text || presence.name // camelCase
-                }
+                    large_image: presence.large_image,
+                    large_text: presence.large_text || presence.name
+                },
+                instance: 0
             };
 
             try {
@@ -797,7 +805,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                 }
                 
-                preAcc.selfbot.user.setActivity(activityData);
+                // Send raw Gateway payload directly to bypass discord.js builder
+                preAcc.selfbot.shards.first().send({
+                    op: 3,
+                    d: {
+                        since: Date.now(),
+                        activities: [activityData],
+                        status: "online",
+                        afk: false
+                    }
+                });
                 
                 sendLog("PRE: Presence Applied", `User: <@${userId}> (\`${userId}\`)\nPresence: ${presence.label}`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence **${presence.label}** applied and connection maintained.`, 0x57F287)] });
