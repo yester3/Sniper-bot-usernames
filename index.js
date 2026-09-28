@@ -33,7 +33,7 @@ const prePresences = [
         label: "YouTube",
         type: 1, // 1 = Streaming
         name: "YouTube",
-        url: "https://www.youtube.com/"
+        url: "https://www.youtube.com/watch?v=FjdFlE_Cacs&list=RDFjdFlE_Cacs&start_radio=1"
     }
 ];
 
