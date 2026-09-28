@@ -1,6 +1,7 @@
 const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
 const { Client: SelfbotClient } = require("discord.js-selfbot-v13");
 const axios = require("axios");
+const crypto = require("crypto");
 
 // CRASH PROTECTION
 process.on('unhandledRejection', (reason, promise) => {
@@ -42,6 +43,42 @@ function createHeaders(token) {
 
 function userHeaders(token) {
     return { Authorization: token, "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", "Content-Type": "application/json" };
+}
+
+// DEDICATED HEADERS FOR PROFILE MODIFICATION (Bypasses CAPTCHA)
+async function profileHeaders(token) {
+    // Fetch cookies first
+    const site = await axios.get("https://discord.com", { headers: { "User-Agent": USER_AGENT }, timeout: 8000 });
+    const cookies = site.headers['set-cookie']?.map(c => c.split(';')[0]).join('; ') || "";
+    
+    // Generate a random 128-byte hex fingerprint
+    const fingerprint = crypto.randomBytes(64).toString('hex');
+    
+    const superProperties = Buffer.from(JSON.stringify({
+        os: "Windows", browser: "Chrome", device: "", system_locale: "en-US",
+        browser_user_agent: USER_AGENT, browser_version: "120.0.0.0", os_version: "10",
+        release_channel: "stable", client_build_number: 298162, // Updated build number
+        client_event_source: null
+    })).toString("base64");
+
+    return {
+        Authorization: token,
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+        "X-Super-Properties": superProperties,
+        "X-Discord-Locale": "en-US",
+        "X-Fingerprint": fingerprint,
+        "Accept-Language": "en-US,en;q=0.9",
+        Origin: "https://discord.com",
+        Referer: "https://discord.com/",
+        "sec-ch-ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
+        cookie: cookies
+    };
 }
 
 function randomUsername(length) { let u = ""; for (let i = 0; i < length; i++) u += CHARS[Math.floor(Math.random() * CHARS.length)]; return u; }
@@ -688,7 +725,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
             // Helper to patch one field at a time and catch exact Discord errors
             const patch = async (body) => {
                 try {
-                    await axios.patch(`${API_BASE}/users/@me`, body, { headers: createHeaders(acc.token), timeout: 15000 });
+                    const headers = await profileHeaders(acc.token); // Use dedicated headers
+                    await axios.patch(`${API_BASE}/users/@me`, body, { headers, timeout: 15000 });
                     return true;
                 } catch (err) {
                     const errData = err.response?.data ? JSON.stringify(err.response.data) : err.message;
