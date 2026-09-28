@@ -448,7 +448,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 
                 const list = dms.map((dm, i) => {
                     const user = dm.recipients?.[0];
-                    const name = user ? `${user.username} (${user.id})` : "Unknown User";
+                    const name = user ? `${user.username} (${user.id})" : "Unknown User`;
                     return `**${i + 1}.** ${name}`;
                 }).join("\n");
                 
@@ -575,7 +575,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                     
                     self.user.setActivity({ type: "STREAMING", name: "Streaming on Twitch", url: "https://twitch.tv/monstercat" });
-                    await sleep(5000); // Wait for Gateway to cache presence
+                    await sleep(5000);
                     self.destroy();
                     
                     sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: Streaming (Gateway)`, 0x57F287);
