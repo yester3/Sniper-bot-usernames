@@ -29,7 +29,8 @@ function defaultConfig() {
     return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
 }
 
-function defaultAccConfig() { return { token: null }; }
+// Added selfbot instance to keep presence alive
+function defaultAccConfig() { return { token: null, selfbot: null }; }
 
 function createHeaders(token) {
     const superProperties = Buffer.from(JSON.stringify({
@@ -353,9 +354,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
         
         if (interaction.isButton() && interaction.customId === "acc_logout") {
             if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
+            
+            // Destroy selfbot if active
+            if (acc.selfbot) {
+                try { await acc.selfbot.destroy(); } catch (e) { console.error("Selfbot destroy error:", e.message); }
+                acc.selfbot = null;
+            }
+            
             sendLog("ACC: Logout", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\``, 0xED4245);
             acc.token = null;
-            return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed from memory. Logged out.")] });
+            return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed and selfbot disconnected. Logged out.")] });
         }
         
         if (interaction.isButton() && interaction.customId === "acc_functions") {
@@ -621,35 +629,37 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid type. Use 'playing' or 'streaming'.", 0xED4245)] });
             }
 
-            await interaction.editReply({ flags: 32768, components: [v2Info("presence", "Connecting to Gateway to apply presence...", 0xFEE75C)] });
+            const activityData = {
+                type: type === "streaming" ? "STREAMING" : "PLAYING",
+                name: name,
+                details: details,
+                state: state
+            };
+
+            if (type === "streaming") {
+                activityData.url = "https://twitch.tv/monstercat"; // Force purple icon
+            }
 
             try {
-                const self = new SelfbotClient();
-                await new Promise((resolve, reject) => {
-                    const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
-                    self.once('ready', () => { clearTimeout(timeout); resolve(); });
-                    self.login(acc.token).catch(reject);
-                });
-
-                const activityData = {
-                    type: type === "streaming" ? "STREAMING" : "PLAYING",
-                    name: name,
-                    details: details,
-                    state: state
-                };
-
-                if (type === "streaming") {
-                    activityData.url = "https://twitch.tv/monstercat"; // Force purple icon
+                // If no selfbot instance, create and login
+                if (!acc.selfbot) {
+                    acc.selfbot = new SelfbotClient();
+                    acc.selfbot.on('error', (e) => console.error("Selfbot error:", e.message)); // Prevent crash
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
+                        acc.selfbot.once('ready', () => { clearTimeout(timeout); resolve(); });
+                        acc.selfbot.login(acc.token).catch(reject);
+                    });
                 }
-
-                self.user.setActivity(activityData);
-                await sleep(5000); // Wait for Gateway to cache
-                self.destroy();
-
+                
+                // Set presence (will stay alive indefinitely)
+                acc.selfbot.user.setActivity(activityData);
+                
                 sendLog("ACC: Custom Presence", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nType: ${type}\nName: ${name}`, 0x57F287);
-                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("presence", "✅ Custom presence applied via Gateway.", 0x57F287)] });
+                return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence applied and connection maintained.`, 0x57F287)] });
             } catch (err) {
-                return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
+                if (acc.selfbot) { try { await acc.selfbot.destroy(); } catch {} acc.selfbot = null; }
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
             }
         }
 
