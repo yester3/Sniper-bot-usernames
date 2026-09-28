@@ -36,7 +36,7 @@ const prePresences = [
         app_id: "1554029590392078347",
         details: "R41d • sp4m • autoquest and more…",
         state: ".gg/VQRjf9Skd9",
-        large_image: "Destruyendolas",
+        large_image: "destruyendolas",
         large_text: "♱ 𝑳𝒆𝒕𝒉4𝒍  ♱"
     }
 ];
@@ -646,6 +646,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid type. Use 'playing' or 'streaming'.", 0xED4245)] });
             }
 
+            // FIX: camelCase for discord.js
             const activityData = {
                 type: type === "streaming" ? "STREAMING" : "PLAYING",
                 name: name,
@@ -681,7 +682,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // /pre COMMAND
         if (interaction.isChatInputCommand() && interaction.commandName === "pre") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
-                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 10, content: "# free Presences\n♱ 𝑳𝒆𝒕𝒉4𝒍  ♱" },
                 { type: 14, divider: true, spacing: true },
@@ -772,15 +773,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
             
             await interaction.deferReply({ flags: 64 });
             
+            // FIX: camelCase properties for discord.js-selfbot-v13
             const activityData = {
-                type: presence.type,
+                type: presence.type, // "PLAYING"
                 name: presence.name,
-                application_id: presence.app_id,
+                applicationId: presence.app_id, // camelCase
                 details: presence.details,
                 state: presence.state,
                 assets: {
-                    large_image: presence.large_image,
-                    large_text: presence.large_text || presence.name
+                    largeImage: presence.large_image, // camelCase
+                    largeText: presence.large_text || presence.name // camelCase
                 }
             };
 
