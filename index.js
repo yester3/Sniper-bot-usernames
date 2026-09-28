@@ -566,6 +566,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
             await interaction.deferReply({ flags: 64 }); const st = interaction.fields.getTextInputValue("status_value").trim().toLowerCase();
             
             if (st === "streaming") {
+                // Immediate response to prevent timeout
+                await interaction.editReply({ flags: 32768, components: [v2Info("status", "Connecting to Gateway to apply streaming status...", 0xFEE75C)] });
+                
                 try {
                     const self = new SelfbotClient();
                     await new Promise((resolve, reject) => {
@@ -575,13 +578,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                     
                     self.user.setActivity({ type: "STREAMING", name: "Streaming on Twitch", url: "https://twitch.tv/monstercat" });
-                    await sleep(5000);
+                    await sleep(5000); // Wait for Gateway to cache
                     self.destroy();
                     
                     sendLog("ACC: Change Status", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nStatus: Streaming (Gateway)`, 0x57F287);
-                    return interaction.editReply({ flags: 32768, components: [v2Info("status", "✅ Streaming status applied via Gateway.", 0x57F287)] });
+                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("status", "✅ Streaming status applied via Gateway.", 0x57F287)] });
                 } catch (err) {
-                    return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed to set streaming status: \`${err.message}\``, 0xED4245)] });
+                    return interaction.followUp({ flags: 32768 | 64, components: [v2Info("error", `❌ Failed to set streaming status: \`${err.message}\``, 0xED4245)] });
                 }
             } else {
                 if (!["online", "idle", "dnd", "invisible"].includes(st)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid status. Use: online, idle, dnd, invisible, streaming.", 0xED4245)] });
