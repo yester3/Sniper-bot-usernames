@@ -448,7 +448,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 
                 const list = dms.map((dm, i) => {
                     const user = dm.recipients?.[0];
-                    const name = user ? `${user.username} (${user.id})" : "Unknown User`;
+                    const name = user ? `${user.username} (${user.id})` : "Unknown User";
                     return `**${i + 1}.** ${name}`;
                 }).join("\n");
                 
