@@ -29,7 +29,6 @@ function defaultConfig() {
     return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
 }
 
-// Added selfbot instance to keep presence alive
 function defaultAccConfig() { return { token: null, selfbot: null }; }
 
 function createHeaders(token) {
@@ -53,6 +52,13 @@ function v2Info(title, text, color = 1) {
         { type: 10, content: `## ${title}` }, { type: 14, divider: true, spacing: true },
         { type: 10, content: text }
     ]};
+}
+
+// Helper to convert image URL to Discord required base64 format
+async function urlToDataURI(url) {
+    const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 15000 });
+    const mime = res.headers['content-type'] || 'image/png';
+    return `data:${mime};base64,${Buffer.from(res.data, 'binary').toString('base64')}`;
 }
 
 async function sendLog(title, description, color = 0x2B2D31) {
@@ -355,7 +361,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isButton() && interaction.customId === "acc_logout") {
             if (!acc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
             
-            // Destroy selfbot if active
             if (acc.selfbot) {
                 try { await acc.selfbot.destroy(); } catch (e) { console.error("Selfbot destroy error:", e.message); }
                 acc.selfbot = null;
@@ -386,7 +391,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 ]},
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" },
-                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" }
+                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" },
+                    { type: 2, style: 2, label: "Profile", custom_id: "acc_profile" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -398,13 +404,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_hypesquad") return interaction.showModal({ custom_id: "acc_hypesquad_modal", title: "HypeSquad", components: [{ type: 1, components: [{ type: 4, custom_id: "house_id", style: 1, label: "House (1=Bravery, 2=Brilliance, 3=Balance)", required: true }] }] });
         
-        // PRESENCES MODAL
         if (interaction.isButton() && interaction.customId === "acc_presence") {
             return interaction.showModal({ custom_id: "acc_presence_modal", title: "Custom Presence", components: [
                 { type: 1, components: [{ type: 4, custom_id: "p_type", style: 1, label: "Type (playing/streaming)", required: true }] },
                 { type: 1, components: [{ type: 4, custom_id: "p_name", style: 1, label: "Name (Title)", required: true }] },
                 { type: 1, components: [{ type: 4, custom_id: "p_details", style: 1, label: "Details (Desc 1)", required: false }] },
                 { type: 1, components: [{ type: 4, custom_id: "p_state", style: 1, label: "State (Desc 2)", required: false }] }
+            ]});
+        }
+
+        if (interaction.isButton() && interaction.customId === "acc_profile") {
+            return interaction.showModal({ custom_id: "acc_profile_modal", title: "Edit Profile", components: [
+                { type: 1, components: [{ type: 4, custom_id: "p_displayname", style: 1, label: "Display Name", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_bio", style: 2, label: "Biography (About Me)", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_avatar", style: 1, label: "Avatar URL (Direct Link)", required: false }] },
+                { type: 1, components: [{ type: 4, custom_id: "p_banner", style: 1, label: "Banner URL (Direct Link)", required: false }] }
             ]});
         }
 
@@ -617,7 +631,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        // PRESENCES MODAL LOGIC
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_presence_modal") {
             await interaction.deferReply({ flags: 64 });
             const type = interaction.fields.getTextInputValue("p_type").trim().toLowerCase();
@@ -637,14 +650,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             };
 
             if (type === "streaming") {
-                activityData.url = "https://twitch.tv/monstercat"; // Force purple icon
+                activityData.url = "https://twitch.tv/monstercat";
             }
 
             try {
-                // If no selfbot instance, create and login
                 if (!acc.selfbot) {
                     acc.selfbot = new SelfbotClient();
-                    acc.selfbot.on('error', (e) => console.error("Selfbot error:", e.message)); // Prevent crash
+                    acc.selfbot.on('error', (e) => console.error("Selfbot error:", e.message));
                     await new Promise((resolve, reject) => {
                         const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
                         acc.selfbot.once('ready', () => { clearTimeout(timeout); resolve(); });
@@ -652,7 +664,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                 }
                 
-                // Set presence (will stay alive indefinitely)
                 acc.selfbot.user.setActivity(activityData);
                 
                 sendLog("ACC: Custom Presence", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nType: ${type}\nName: ${name}`, 0x57F287);
@@ -660,6 +671,38 @@ client.on(Events.InteractionCreate, async (interaction) => {
             } catch (err) {
                 if (acc.selfbot) { try { await acc.selfbot.destroy(); } catch {} acc.selfbot = null; }
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
+            }
+        }
+
+        // PROFILE MODAL LOGIC
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_profile_modal") {
+            await interaction.deferReply({ flags: 64 });
+            const displayName = interaction.fields.getTextInputValue("p_displayname").trim();
+            const bio = interaction.fields.getTextInputValue("p_bio").trim();
+            const avatarUrl = interaction.fields.getTextInputValue("p_avatar").trim();
+            const bannerUrl = interaction.fields.getTextInputValue("p_banner").trim();
+
+            const payload = {};
+            if (displayName) payload.global_name = displayName;
+            if (bio) payload.bio = bio;
+            
+            if (Object.keys(payload).length === 0 && !avatarUrl && !bannerUrl) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("profile", "No changes made. Please fill at least one field.", 0xFEE75C)] });
+            }
+
+            try {
+                if (avatarUrl) payload.avatar = await urlToDataURI(avatarUrl);
+                if (bannerUrl) payload.banner = await urlToDataURI(bannerUrl);
+            } catch (err) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", "Failed to fetch image URLs. Make sure they are direct links.", 0xED4245)] });
+            }
+
+            try {
+                await axios.patch(`${API_BASE}/users/@me`, payload, { headers: userHeaders(acc.token), timeout: 15000 });
+                sendLog("ACC: Profile Updated", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nFields: ${Object.keys(payload).join(", ")}`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("profile", "✅ Profile updated successfully.", 0x57F287)] });
+            } catch (err) {
+                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ \`${err.response?.data?.message || err.message}\``, 0xED4245)] });
             }
         }
 
