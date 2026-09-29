@@ -664,8 +664,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return interaction.editReply({ flags: 32768, components: [v2Info("voice", "Invalid Voice Channel ID.", 0xED4245)] });
                 }
                 
-                // FIX: Use native selfbot voice join
-                await channel.join();
+                // FIX: Use setVoiceChannel to avoid global map conflict
+                await acc.selfbot.user.setVoiceChannel(voiceId);
                 
                 sendLog("ACC: Voice Join", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nChannel: ${channel.name} (\`${channel.id}\`)`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("voice", `✅ Joined **${channel.name}** infinitely. Will disconnect on logout.`, 0x57F287)] });
