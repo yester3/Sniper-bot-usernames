@@ -1,5 +1,6 @@
 const { Client, GatewayIntentBits, Events, InteractionType } = require("discord.js");
 const { Client: SelfbotClient } = require("discord.js-selfbot-v13");
+const { joinVoiceChannel, getVoiceConnection } = require("@discordjs/voice");
 const axios = require("axios");
 
 // CRASH PROTECTION
@@ -14,7 +15,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const AUTHORIZED_USER_ID = "1539880648326651929";
 
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+    intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.GuildVoiceStates]
 });
 
 const API_BASE = "https://discord.com/api/v9";
@@ -23,19 +24,7 @@ const CHARS = "abcdefghijklmnopqrstuvwxyz";
 
 const userConfig = new Map();
 const accConfig = new Map();
-const preAccConfig = new Map();
 let logsChannelId = null;
-
-// Hardcoded Presences
-const prePresences = [
-    {
-        id: "youtube",
-        label: "YouTube",
-        type: 1, // 1 = Streaming
-        name: "YouTube",
-        url: "https://www.youtube.com/watch?v=FjdFlE_Cacs&list=RDFjdFlE_Cacs&start_radio=1"
-    }
-];
 
 function defaultConfig() {
     return { tokens: [], tokenNames: [], webhookUsers: "", webhookRL: "", delayMs: 20000, isRunning: false, checkedUsernames: new Set(), foundQueue: [], fastSend: false, totalTokensAdded: 0, invalidTokensCount: 0 };
@@ -152,8 +141,11 @@ client.once(Events.ClientReady, async (c) => {
             { name: "2nip3r", description: "Open the username sniper interface." },
             { name: "token-info", description: "Get information from a Discord token." },
             { name: "acc", description: "Open the automated accounts panel." },
-            { name: "pre", description: "Open the free Presences panel." },
-            { name: "logs", description: "Configure the logs channel.", options: [{ type: 7, name: "channel", description: "The channel for logs", required: true }] }
+            { name: "logs", description: "Configure the logs channel.", options: [{ type: 7, name: "channel", description: "The channel for logs", required: true }] },
+            { name: "voice", description: "Make the bot join a voice channel.", options: [
+                { type: 7, name: "channel", description: "The voice channel to join", required: true, channel_types: [2] },
+                { type: 5, name: "stop", description: "Stop and disconnect (true/false)", required: false }
+            ]}
         ]);
         console.log("Commands registered.");
     } catch (err) { console.error("Cmd reg error:", err); }
@@ -166,22 +158,38 @@ client.on(Events.InteractionCreate, async (interaction) => {
         // AUTH LOCKS
         if (interaction.isChatInputCommand() && interaction.commandName === "2nip3r" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
         if (interaction.isChatInputCommand() && interaction.commandName === "acc" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
-        if (interaction.isChatInputCommand() && interaction.commandName === "pre" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
+        if (interaction.isChatInputCommand() && interaction.commandName === "voice" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
         if (interaction.isChatInputCommand() && interaction.commandName === "logs" && userId !== AUTHORIZED_USER_ID) return interaction.reply({ flags: 64, content: "Not authorized." }).catch(()=>{});
 
         if (!userConfig.has(userId)) userConfig.set(userId, defaultConfig());
         if (!accConfig.has(userId)) accConfig.set(userId, defaultAccConfig());
-        if (!preAccConfig.has(userId)) preAccConfig.set(userId, defaultAccConfig());
-        
         const config = userConfig.get(userId);
         const acc = accConfig.get(userId);
-        const preAcc = preAccConfig.get(userId);
 
         // /logs COMMAND
         if (interaction.isChatInputCommand() && interaction.commandName === "logs") {
             logsChannelId = interaction.options.getChannel("channel").id;
             sendLog("Logs Configured", `Logs channel set to <#${logsChannelId}> by <@${userId}> (\`${userId}\`).`, 0x57F287);
             return interaction.reply({ flags: 64, content: `Logs channel set to <#${logsChannelId}>.` });
+        }
+
+        // /voice COMMAND
+        if (interaction.isChatInputCommand() && interaction.commandName === "voice") {
+            const stop = interaction.options.getBoolean("stop") || false;
+            if (stop) {
+                const conn = getVoiceConnection(interaction.guild.id);
+                if (conn) conn.disconnect();
+                return interaction.reply({ flags: 64, content: "Bot disconnected from voice." });
+            }
+            const channel = interaction.options.getChannel("channel");
+            joinVoiceChannel({
+                channelId: channel.id,
+                guildId: interaction.guild.id,
+                adapterCreator: interaction.guild.voiceAdapterCreator,
+                selfDeaf: true,
+                selfMute: true
+            });
+            return interaction.reply({ flags: 64, content: `Bot joined <#${channel.id}> and will stay infinitely.` });
         }
 
         // /token-info
@@ -321,7 +329,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -401,7 +409,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 ]},
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Hypesquad", custom_id: "acc_hypesquad" },
-                    { type: 2, style: 2, label: "Presences", custom_id: "acc_presence" }
+                    { type: 2, style: 2, label: "Voice Join", custom_id: "acc_voice" }
                 ]}
             ]};
             return interaction.reply({ flags: 32768 | 64, components: [c] });
@@ -412,15 +420,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isButton() && interaction.customId === "acc_setstatus") return interaction.showModal({ custom_id: "acc_setstatus_modal", title: "Change Status", components: [{ type: 1, components: [{ type: 4, custom_id: "status_value", style: 1, label: "Status (online/idle/dnd/invisible)", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_changenick") return interaction.showModal({ custom_id: "acc_changenick_modal", title: "Change Nickname", components: [{ type: 1, components: [{ type: 4, custom_id: "nick_value", style: 1, label: "New Nickname", required: true }] }] });
         if (interaction.isButton() && interaction.customId === "acc_hypesquad") return interaction.showModal({ custom_id: "acc_hypesquad_modal", title: "HypeSquad", components: [{ type: 1, components: [{ type: 4, custom_id: "house_id", style: 1, label: "House (1=Bravery, 2=Brilliance, 3=Balance)", required: true }] }] });
-        
-        if (interaction.isButton() && interaction.customId === "acc_presence") {
-            return interaction.showModal({ custom_id: "acc_presence_modal", title: "Custom Presence", components: [
-                { type: 1, components: [{ type: 4, custom_id: "p_type", style: 1, label: "Type (playing/streaming)", required: true }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_name", style: 1, label: "Name (Title)", required: true }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_details", style: 1, label: "Details (Desc 1)", required: false }] },
-                { type: 1, components: [{ type: 4, custom_id: "p_state", style: 1, label: "State (Desc 2)", required: false }] }
-            ]});
-        }
+        if (interaction.isButton() && interaction.customId === "acc_voice") return interaction.showModal({ custom_id: "acc_voice_modal", title: "Voice Join", components: [{ type: 1, components: [{ type: 4, custom_id: "voice_channel_id", style: 1, label: "Voice Channel ID", required: true }] }] });
 
         if (interaction.isButton() && interaction.customId === "acc_reset") {
             const c = { type: 17, accent_color: 0xED4245, components: [
@@ -631,29 +631,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             }
         }
 
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_presence_modal") {
+        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_voice_modal") {
             await interaction.deferReply({ flags: 64 });
-            const type = interaction.fields.getTextInputValue("p_type").trim().toLowerCase();
-            const name = interaction.fields.getTextInputValue("p_name").trim();
-            const details = interaction.fields.getTextInputValue("p_details").trim() || undefined;
-            const state = interaction.fields.getTextInputValue("p_state").trim() || undefined;
-
-            if (!["playing", "streaming"].includes(type)) {
-                return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid type. Use 'playing' or 'streaming'.", 0xED4245)] });
-            }
-
-            // FIX: Using setPresence with camelCase properties
-            const activityData = {
-                name: name,
-                type: type === "streaming" ? 1 : 0,
-                details: details,
-                state: state
-            };
-            if (type === "streaming") activityData.url = "https://twitch.tv/monstercat";
-
+            const voiceId = interaction.fields.getTextInputValue("voice_channel_id").trim();
+            
             try {
                 if (!acc.selfbot) {
-                    acc.selfbot = new SelfbotClient();
+                    acc.selfbot = new SelfbotClient({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates] });
                     acc.selfbot.on('error', (e) => console.error("Selfbot error:", e.message));
                     await new Promise((resolve, reject) => {
                         const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
@@ -662,135 +646,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     });
                 }
                 
-                acc.selfbot.user.setPresence({ activities: [activityData] });
-                
-                sendLog("ACC: Custom Presence", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nType: ${type}\nName: ${name}`, 0x57F287);
-                return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence applied and connection maintained.`, 0x57F287)] });
-            } catch (err) {
-                if (acc.selfbot) { try { await acc.selfbot.destroy(); } catch {} acc.selfbot = null; }
-                return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
-            }
-        }
-
-        // /pre COMMAND
-        if (interaction.isChatInputCommand() && interaction.commandName === "pre") {
-            const c = { type: 17, accent_color: 0x2B2D31, components: [
-                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
-                { type: 14, divider: true, spacing: true },
-                { type: 10, content: "# free Presences\n♱ 𝑳𝒆𝒕𝒉4𝒍  ♱" },
-                { type: 14, divider: true, spacing: true },
-                { type: 10, content: "Presences gratuitas y pre configuradas usando tu token de discord\nEliges una y se activa automáticamente\n\n• 𝐋𝐨𝐠𝐢𝐧- conecta con tu token \n• 𝐕𝐞𝐫 𝐏𝐫𝐞𝐬𝐞𝐧𝐜𝐞𝐬- muestra todas las Presences podrás elegir una\n• 𝐋𝐨𝐠 𝐨𝐮𝐭- desconecta tu token, la presence desaparecerá automáticamente, deberás volver a hacer login y elegir la presence que quieras utilizar" },
-                { type: 14, divider: true, spacing: true },
-                { type: 1, components: [
-                    { type: 2, style: 2, label: "Login", custom_id: "pre_login" },
-                    { type: 2, style: 2, label: "Ver Presences", custom_id: "pre_view" },
-                    { type: 2, style: 2, label: "Log out", custom_id: "pre_logout" }
-                ]},
-                { type: 14, divider: true, spacing: true },
-                { type: 10, content: "# descarga de responsabilidad\nEsta herramienta interactúa con la API interna de Discord. Úsala bajo tu propio riesgo.\n• Automatizar acciones en cuentas de usuario puede violar los Términos de Servicio de Discord.\n• El autor no se hace responsable de ninguna sanción o acción tomada por Discord contra tu cuenta." }
-            ]};
-            await interaction.channel.send({ flags: 32768, components: [c] }).catch(console.error);
-            return interaction.reply({ flags: 64, content: "Panel deployed." }).catch(console.error);
-        }
-
-        // /pre BUTTONS
-        if (interaction.isButton() && interaction.customId === "pre_login") {
-            return interaction.showModal({ custom_id: "pre_login_modal", title: "Login", components: [{ type: 1, components: [{ type: 4, custom_id: "pre_token", style: 1, label: "Account Token", required: true }] }] });
-        }
-        
-        if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "pre_login_modal") {
-            await interaction.deferReply({ flags: 64 });
-            const token = interaction.fields.getTextInputValue("pre_token").trim();
-            
-            let data;
-            try {
-                data = await getAccountInfo(token);
-            } catch (err) {
-                return interaction.editReply({ flags: 32768, components: [v2Info("error", `Invalid or expired token.\nHTTP ${err?.response?.status ?? "N/A"}`, 0xED4245)] });
-            }
-            
-            preAcc.token = token;
-            
-            let dmsCount = 0, guildsCount = 0;
-            try { const dms = await getDMs(token); dmsCount = dms.length; } catch (e) {}
-            try { const guilds = await getGuilds(token); guildsCount = guilds.length; } catch (e) {}
-            
-            const n = {0:"None",1:"Classic",2:"Nitro",3:"Basic"}[data.premium_type] ?? "Unknown";
-            const ca = new Date(Number((BigInt(data.id) >> 22n) + 1420070400000n));
-            const av = data.avatar ? `https://cdn.discordapp.com/avatars/${data.id}/${data.avatar}.${data.avatar.startsWith("a_") ? "gif" : "png"}?size=256` : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(data.id) >> 22n) % 6n)}.png`;
-            
-            sendLog("PRE: Login Successful", `User: <@${userId}> (\`${userId}\`)\nToken: \`${token.slice(0,15)}...\`\nAcc: ${data.username} (\`${data.id}\`)`, 0x57F287);
-            
-            const c = { type: 17, accent_color: 0x57F287, components: [
-                { type: 10, content: "## login successful" }, { type: 14, divider: true, spacing: true },
-                { type: 9, components: [{ type: 10, content: `**Username:** ${data.username}\n**User ID:** \`${data.id}\`\n**Created:** <t:${Math.floor(ca.getTime() / 1000)}:F>\n**Email:** ${data.email || "N/A"}\n**Phone:** ${data.phone || "N/A"}\n**Open DMs:** ${dmsCount}\n**Servers:** ${guildsCount}\n**Nitro:** ${n}\n**2FA:** ${data.mfa_enabled ? "Yes" : "No"}` }], accessory: { type: 11, media: { url: av } } }
-            ]};
-            return interaction.editReply({ flags: 32768, components: [c] });
-        }
-
-        if (interaction.isButton() && interaction.customId === "pre_logout") {
-            if (!preAcc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "You are not logged in.", 0xED4245)] });
-            
-            if (preAcc.selfbot) {
-                try { await preAcc.selfbot.destroy(); } catch (e) { console.error("Selfbot destroy error:", e.message); }
-                preAcc.selfbot = null;
-            }
-            
-            sendLog("PRE: Logout", `User: <@${userId}> (\`${userId}\`)\nToken: \`${preAcc.token.slice(0,15)}...\``, 0xED4245);
-            preAcc.token = null;
-            return interaction.reply({ flags: 32768 | 64, components: [v2Info("logout", "Token removed and presence disconnected.")] });
-        }
-
-        if (interaction.isButton() && interaction.customId === "pre_view") {
-            if (!preAcc.token) return interaction.reply({ flags: 32768 | 64, components: [v2Info("error", "No token found. Please use **Login** first.", 0xED4245)] });
-            
-            const buttons = prePresences.map(p => ({ type: 2, style: 2, label: p.label.slice(0, 80), custom_id: `pre_select_${p.id}` }));
-            const rows = [];
-            for (let i = 0; i < buttons.length; i += 5) {
-                rows.push({ type: 1, components: buttons.slice(i, i + 5) });
-            }
-            
-            const c = { type: 17, accent_color: 0x2B2D31, components: [
-                { type: 10, content: "## select presence" }, { type: 14, divider: true, spacing: true },
-                ...rows
-            ]};
-            return interaction.reply({ flags: 32768 | 64, components: [c] });
-        }
-
-        // PRESENCE SELECTION LOGIC
-        if (interaction.isButton() && interaction.customId.startsWith("pre_select_")) {
-            const presenceId = interaction.customId.replace("pre_select_", "");
-            const presence = prePresences.find(p => p.id === presenceId);
-            
-            if (!presence) return interaction.reply({ flags: 64, content: "Presence not found." });
-            
-            await interaction.deferReply({ flags: 64 });
-            
-            // FIX: Using setPresence with camelCase properties for Rich Presence
-            const activityData = {
-                name: presence.name,
-                type: presence.type, // 1 for Streaming
-                url: presence.url // "https://www.youtube.com/"
-            };
-
-            try {
-                if (!preAcc.selfbot) {
-                    preAcc.selfbot = new SelfbotClient();
-                    preAcc.selfbot.on('error', (e) => console.error("Pre Selfbot error:", e.message));
-                    await new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => reject(new Error("Login timeout")), 20000);
-                        preAcc.selfbot.once('ready', () => { clearTimeout(timeout); resolve(); });
-                        preAcc.selfbot.login(preAcc.token).catch(reject);
-                    });
+                const channel = await acc.selfbot.channels.fetch(voiceId);
+                if (!channel || channel.type !== "GUILD_VOICE") {
+                    return interaction.editReply({ flags: 32768, components: [v2Info("voice", "Invalid Voice Channel ID.", 0xED4245)] });
                 }
                 
-                // Use official API method
-                preAcc.selfbot.user.setPresence({ activities: [activityData] });
+                await channel.join();
                 
-                sendLog("PRE: Presence Applied", `User: <@${userId}> (\`${userId}\`)\nPresence: ${presence.label}`, 0x57F287);
-                return interaction.editReply({ flags: 32768, components: [v2Info("presence", `✅ Presence **${presence.label}** applied and connection maintained.`, 0x57F287)] });
+                sendLog("ACC: Voice Join", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nChannel: ${channel.name} (\`${channel.id}\`)`, 0x57F287);
+                return interaction.editReply({ flags: 32768, components: [v2Info("voice", `✅ Joined **${channel.name}** infinitely. Will disconnect on logout.`, 0x57F287)] });
             } catch (err) {
-                if (preAcc.selfbot) { try { await preAcc.selfbot.destroy(); } catch {} preAcc.selfbot = null; }
+                if (acc.selfbot) { try { await acc.selfbot.destroy(); } catch {} acc.selfbot = null; }
                 return interaction.editReply({ flags: 32768, components: [v2Info("error", `❌ Failed: \`${err.message}\``, 0xED4245)] });
             }
         }
