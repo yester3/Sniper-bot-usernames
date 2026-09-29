@@ -173,7 +173,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.reply({ flags: 64, content: `Logs channel set to <#${logsChannelId}>.` });
         }
 
-        // /voice COMMAND
+        // /voice COMMAND (Bot Account)
         if (interaction.isChatInputCommand() && interaction.commandName === "voice") {
             await interaction.deferReply({ flags: 64 });
             try {
@@ -186,11 +186,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 const channel = interaction.options.getChannel("channel");
                 if (!channel) return interaction.editReply({ content: "Channel not found." });
                 
-                // Check permissions
                 const botMember = await interaction.guild.members.fetch(client.user.id);
                 const permissions = botMember.permissionsIn(channel.id);
-                if (!permissions.has("Connect")) return interaction.editReply({ content: "I need the `Connect` permission in that voice channel." });
-                if (!permissions.has("ViewChannel")) return interaction.editReply({ content: "I need the `View Channel` permission for that voice channel." });
+                if (!permissions.has("Connect")) return interaction.editReply({ content: "I need the `Connect` permission." });
+                if (!permissions.has("ViewChannel")) return interaction.editReply({ content: "I need the `View Channel` permission." });
 
                 joinVoiceChannel({
                     channelId: channel.id,
@@ -665,14 +664,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return interaction.editReply({ flags: 32768, components: [v2Info("voice", "Invalid Voice Channel ID.", 0xED4245)] });
                 }
                 
-                const guild = await acc.selfbot.guilds.fetch(channel.guildId);
-                joinVoiceChannel({
-                    channelId: channel.id,
-                    guildId: channel.guildId,
-                    adapterCreator: guild.voiceAdapterCreator,
-                    selfDeaf: true,
-                    selfMute: true
-                });
+                // FIX: Use native selfbot voice join
+                await channel.join();
                 
                 sendLog("ACC: Voice Join", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nChannel: ${channel.name} (\`${channel.id}\`)`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("voice", `✅ Joined **${channel.name}** infinitely. Will disconnect on logout.`, 0x57F287)] });
