@@ -175,21 +175,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         // /voice COMMAND
         if (interaction.isChatInputCommand() && interaction.commandName === "voice") {
-            const stop = interaction.options.getBoolean("stop") || false;
-            if (stop) {
-                const conn = getVoiceConnection(interaction.guild.id);
-                if (conn) conn.disconnect();
-                return interaction.reply({ flags: 64, content: "Bot disconnected from voice." });
+            await interaction.deferReply({ flags: 64 });
+            try {
+                const stop = interaction.options.getBoolean("stop") || false;
+                if (stop) {
+                    const conn = getVoiceConnection(interaction.guild.id);
+                    if (conn) conn.disconnect();
+                    return interaction.editReply({ content: "Bot disconnected from voice." });
+                }
+                const channel = interaction.options.getChannel("channel");
+                if (!channel) return interaction.editReply({ content: "Channel not found." });
+                
+                // Check permissions
+                const botMember = await interaction.guild.members.fetch(client.user.id);
+                const permissions = botMember.permissionsIn(channel.id);
+                if (!permissions.has("Connect")) return interaction.editReply({ content: "I need the `Connect` permission in that voice channel." });
+                if (!permissions.has("ViewChannel")) return interaction.editReply({ content: "I need the `View Channel` permission for that voice channel." });
+
+                joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: interaction.guild.id,
+                    adapterCreator: interaction.guild.voiceAdapterCreator,
+                    selfDeaf: true,
+                    selfMute: true
+                });
+                return interaction.editReply({ content: `Bot joined <#${channel.id}> and will stay infinitely.` });
+            } catch (err) {
+                console.error("Voice Command Error:", err);
+                return interaction.editReply({ content: `Error joining voice: \`${err.message}\`` });
             }
-            const channel = interaction.options.getChannel("channel");
-            joinVoiceChannel({
-                channelId: channel.id,
-                guildId: interaction.guild.id,
-                adapterCreator: interaction.guild.voiceAdapterCreator,
-                selfDeaf: true,
-                selfMute: true
-            });
-            return interaction.reply({ flags: 64, content: `Bot joined <#${channel.id}> and will stay infinitely.` });
         }
 
         // /token-info
@@ -619,7 +633,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.type === InteractionType.ModalSubmit && interaction.customId === "acc_hypesquad_modal") {
             await interaction.deferReply({ flags: 64 });
             const houseId = parseInt(interaction.fields.getTextInputValue("house_id").trim());
-            if (![1, 2, 3].includes(houseId)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid house ID. Use 1 (Bravery), 2 (Brilliance), or 3 (Balance).", 0xED4245)] });
+            if (![1, 2, 3].includes(houseId)) return interaction.editReply({ flags: 32768, components: [v2Info("error", "❌ Invalid house ID. Use 1 (Bravery), 2 (Brilliance), or 3 (Balance.", 0xED4245)] });
             
             try {
                 await axios.post(`${API_BASE}/hypesquad/online`, { house_id: houseId }, { headers: userHeaders(acc.token), timeout: 8000 });
