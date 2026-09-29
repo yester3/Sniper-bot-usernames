@@ -329,7 +329,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (interaction.isChatInputCommand() && interaction.commandName === "acc") {
             const c = { type: 17, accent_color: 0x2B2D31, components: [
                 { type: 10, content: "## automated accounts" }, { type: 14, divider: true, spacing: true },
-                { type: 12, items: [{ media: { url: "https://i-postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
+                { type: 12, items: [{ media: { url: "https://i.postimg.cc/rmTcLcf2/IMG-6380.gif" } }] },
                 { type: 14, divider: true, spacing: true },
                 { type: 1, components: [
                     { type: 2, style: 2, label: "Login", custom_id: "acc_login" },
@@ -651,7 +651,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return interaction.editReply({ flags: 32768, components: [v2Info("voice", "Invalid Voice Channel ID.", 0xED4245)] });
                 }
                 
-                await channel.join();
+                const guild = await acc.selfbot.guilds.fetch(channel.guildId);
+                joinVoiceChannel({
+                    channelId: channel.id,
+                    guildId: channel.guildId,
+                    adapterCreator: guild.voiceAdapterCreator,
+                    selfDeaf: true,
+                    selfMute: true
+                });
                 
                 sendLog("ACC: Voice Join", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nChannel: ${channel.name} (\`${channel.id}\`)`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("voice", `✅ Joined **${channel.name}** infinitely. Will disconnect on logout.`, 0x57F287)] });
