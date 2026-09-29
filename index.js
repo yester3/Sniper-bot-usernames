@@ -97,6 +97,41 @@ async function getGuilds(token) {
     return Array.isArray(res.data) ? res.data : [];
 }
 
+// Helper to force selfbot voice join
+async function joinSelfbotVoice(selfbot, channel) {
+    // Method 1: channel.join()
+    if (typeof channel.join === 'function') {
+        await channel.join();
+        return;
+    }
+    // Method 2: client.voice.joinVoiceChannel
+    if (selfbot.voice && typeof selfbot.voice.joinVoiceChannel === 'function') {
+        selfbot.voice.joinVoiceChannel({
+            channelId: channel.id,
+            guildId: channel.guildId,
+            adapterCreator: channel.guild.voiceAdapterCreator
+        });
+        return;
+    }
+    // Method 3: Raw Gateway payload (Opcode 4)
+    const payload = {
+        op: 4,
+        d: {
+            guild_id: channel.guildId,
+            channel_id: channel.id,
+            self_mute: true,
+            self_deaf: true
+        }
+    };
+    if (selfbot.shards && selfbot.shards.size > 0) {
+        selfbot.shards.first().send(payload);
+    } else if (selfbot.ws && selfbot.ws.shards && selfbot.ws.shards.size > 0) {
+        selfbot.ws.shards.first().send(payload);
+    } else {
+        throw new Error("Voice join methods not available.");
+    }
+}
+
 async function runQueueProcessor(userId) {
     const config = userConfig.get(userId); if (!config) return;
     while (config.isRunning || config.foundQueue.length > 0) {
@@ -664,8 +699,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
                     return interaction.editReply({ flags: 32768, components: [v2Info("voice", "Invalid Voice Channel ID.", 0xED4245)] });
                 }
                 
-                // FIX: Use setVoiceChannel to avoid global map conflict
-                await acc.selfbot.user.setVoiceChannel(voiceId);
+                // Use robust voice join function
+                await joinSelfbotVoice(acc.selfbot, channel);
                 
                 sendLog("ACC: Voice Join", `User: <@${userId}> (\`${userId}\`)\nToken: \`${acc.token.slice(0,15)}...\`\nChannel: ${channel.name} (\`${channel.id}\`)`, 0x57F287);
                 return interaction.editReply({ flags: 32768, components: [v2Info("voice", `✅ Joined **${channel.name}** infinitely. Will disconnect on logout.`, 0x57F287)] });
